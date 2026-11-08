@@ -18,19 +18,21 @@ const isDevBuild =
 
 const config: ExpoConfig = {
   name: 'Contrast Inspector',
-  slug: 'contrast-inspector',
+  slug: 'a11y-contrast-inspector',
   version: '1.0.0',
-  scheme: 'contrastinspector',
+  scheme: 'a11ycontrast',
   orientation: 'default', // rotation allowed (WCAG 1.3.4)
   icon: './assets/icon.png',
   userInterfaceStyle: 'automatic', // follow the system dark mode
   platforms: ['android'],
   android: {
-    // CONFIRM BEFORE FIRST UPLOAD: a Google Play package name can never change.
-    package: 'ro.dbg.contrastinspector',
+    // Decided 2026-11-08 and now fixed: a Google Play package name can never
+    // change after the first upload. The `a11y` segment leaves room for the
+    // other tools in the set (ro.dbg.a11y.taptargets, ...).
+    package: 'ro.dbg.a11y.contrast',
     versionCode: 1,
     adaptiveIcon: {
-      backgroundColor: '#E6F4FE',
+      backgroundColor: '#DBE7FF', // matches android-icon-background.png
       foregroundImage: './assets/android-icon-foreground.png',
       backgroundImage: './assets/android-icon-background.png',
       monochromeImage: './assets/android-icon-monochrome.png',
@@ -55,6 +57,25 @@ const config: ExpoConfig = {
     ],
   },
   plugins: [
+    // Re-applies release signing on every prebuild; see the file for why.
+    './plugins/withReleaseSigning',
+    [
+      'expo-splash-screen',
+      {
+        // Without this plugin Expo generates its own default splash, which is
+        // how the template logo survived the icon replacement.
+        image: './assets/splash-icon.png',
+        imageWidth: 180,
+        resizeMode: 'contain',
+        backgroundColor: '#DBE7FF', // same as the adaptive icon background
+        dark: {
+          // The light mark's dark half would merge into a dark background, so
+          // the dark variant lifts it to #2A3340 and outlines in white.
+          image: './assets/splash-icon-dark.png',
+          backgroundColor: '#0B0F14', // palette.dark.bg
+        },
+      },
+    ],
     [
       'expo-build-properties',
       {
