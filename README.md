@@ -63,7 +63,36 @@ hex and RGB, and the WCAG verdicts.
    wider than the sample) and acts only above a threshold taken from the
    measurements: every pixel whose real error reached 8 levels had a spread of
    at least 54.6, and no pixel under a spread of 16 exceeded 3 levels, so the
-   threshold sits at **24**, in the empty gap. On a real MIUI screenshot that
+   threshold sits at **24**, in the empty gap.
+
+   **That gap is a property of `testdata/reference.png`, not of JPEG.** The
+   reference image is large flat blocks and one neutral stripe band; it
+   contains no thin coloured strokes, which is exactly the content an
+   accessibility auditor measures. Re-measured on text-like content — strokes
+   1 to 4 pixels wide, five foreground colours over three backgrounds, same
+   encoder settings:
+
+   | content | damaged pixels (error >= 8) | lowest spread among them | missed by the threshold |
+   | --- | --- | --- | --- |
+   | `reference.png` | 1118 | 54.64 | **0 (0.0%)** |
+   | text-like strokes | 7998 | 7.73 | **1728 (21.6%)** |
+
+   The worst miss is `#1D4ED8` decoding as `#414E70` — **104 levels** of
+   channel error — with a 3x3 chroma spread of only 20.9, so the gate never
+   fires and the app shows a confident single number with no warning at all.
+   On a thin stroke the relationship inverts: the chroma field is smoothed
+   across the whole stroke, so the error is large while the local variation
+   left to measure is small. This happens under box upsampling too, so it is
+   not about the decoder.
+
+   The witness rule does not rescue it — measured, it catches 0% of these —
+   because "undamaged" is defined by the same low spread that let them
+   through, so such a pixel witnesses itself. Lowering the threshold is not
+   the answer either: the "fires on 1.97% of pixels" and "flat dark chrome
+   stays silent" properties were tuned against 24. The right number has to be
+   measured on content that includes thin coloured text, and that content is
+   not in this repository yet. **Until then, treat a reading taken on or near
+   small coloured text as unverified, whatever the app says.** On a real MIUI screenshot that
    fires on 1.97% of pixels; on flat dark chrome (`#181C27`) the median spread
    is 1.2.
 
