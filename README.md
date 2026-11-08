@@ -265,6 +265,17 @@ share sheet. It exists because a screenshot of the app is a *worse* record:
 the panel scrolls, so the warnings and the source details are usually not in
 the picture, and the number travels without them.
 
+![An exported evidence card: the crop with both points marked, both sampled
+colours, the contrast ratio reported as the range 4.02 to 5.51 to 1, five WCAG
+criteria of which two read Unknown, the full JPEG warning, and a footer naming
+the file, its format, the sampling mode and the time.](docs/sample-evidence-card.png)
+
+*An actual export, pulled back out of the device after it went through the
+share sheet. Two criteria read **Unknown** because the band straddles their
+threshold — the single stored value, 4.02:1, would have answered both. The
+footer carries the picker-name caveat described below, which is what a card
+looks like when the app cannot vouch for the filename.*
+
 The card carries the crop with both points marked, the two sampled colours with
 their hex, channels and pixel coordinates, the ratio **or the range**, the
 per-criterion verdicts, every warning verbatim, and a footer naming the file,
