@@ -56,6 +56,35 @@ export function chroma(c: RGB): { cb: number; cr: number } {
 }
 
 /**
+ * BT.601 full-range luma — the component JPEG keeps PER PIXEL, and therefore
+ * the one part of a subsampled reading that survives.
+ */
+export function luma(c: RGB): number {
+  return 0.299 * c.r + 0.587 * c.g + 0.114 * c.b;
+}
+
+/**
+ * Inverse of `luma` + `chroma`, i.e. what a decoder does. Exact inverse: the
+ * constants are 2(1-Kr) = 1.402, 2(1-Kb) = 1.772, Kr*2(1-Kr)/Kg = 0.714136 and
+ * Kb*2(1-Kb)/Kg = 0.344136 for Kr/Kg/Kb = 0.299/0.587/0.114, so a round trip
+ * through integer RGB returns the same integers (asserted in the tests).
+ *
+ * Channels are clamped to 0-255 and rounded, exactly as a decoder must: a luma
+ * combined with a chroma from elsewhere can land outside the cube, and that
+ * combination is still a colour the file could have decoded to.
+ */
+export function fromYCbCr(y: number, cb: number, cr: number): RGB {
+  const u = cb - 128;
+  const v = cr - 128;
+  const ch = (x: number) => Math.min(255, Math.max(0, Math.round(x)));
+  return {
+    r: ch(y + 1.402 * v),
+    g: ch(y - 0.344136 * u - 0.714136 * v),
+    b: ch(y + 1.772 * u),
+  };
+}
+
+/**
  * Largest Cb or Cr range across an RGBA buffer, i.e. how much the colour
  * information varies over the sampled neighbourhood. 0 for a chroma-flat area,
  * whatever colour that area is.
@@ -93,14 +122,32 @@ export const LOSSY_WARNING =
   'inside. For a result you intend to cite, use a PNG screenshot.';
 
 /**
+ * Shown instead of the above when an uncertainty band IS being displayed (see
+ * `band.ts`). The band already states the consequence, so this only has to say
+ * where the band comes from and how to narrow it; repeating the worst case
+ * would just push the band's own numbers off the screen.
+ */
+export const LOSSY_WARNING_BANDED =
+  'This is a JPEG, which stores colour at half resolution, so the single ' +
+  'stored value is not a reading of the screen — the range above is. Narrow ' +
+  'it by moving a point two or more pixels inside a single flat colour, but ' +
+  'thin coloured text has no inside. For a result you intend to cite, use a ' +
+  'PNG screenshot: Android captures PNG, and it is the OEM skin that ' +
+  're-encodes it.';
+
+/**
  * Returns the warning when the file is lossy AND the sampled neighbourhood has
  * enough chroma variation for subsampling to have moved the reading.
+ *
+ * `banded` selects the shorter text for the case where a band is on screen.
  */
 export function lossyWarning(
   format: 'png' | 'jpeg' | 'other',
   points: readonly (LossyPoint | null)[],
+  banded = false,
 ): string | null {
   if (format !== 'jpeg') return null;
   const atRisk = points.some((p) => p !== null && p.chromaSpread >= LOSSY_SPREAD_THRESHOLD);
-  return atRisk ? LOSSY_WARNING : null;
+  if (!atRisk) return null;
+  return banded ? LOSSY_WARNING_BANDED : LOSSY_WARNING;
 }

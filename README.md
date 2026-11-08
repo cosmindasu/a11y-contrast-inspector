@@ -47,14 +47,49 @@ hex and RGB, and the WCAG verdicts.
    by mixing it with a neighbour that differs. A large flat area of `#181C27`
    is safe; a grey pixel one step from a saturated edge is not. So the app
    measures the **chroma spread** over the sampled neighbourhood (one pixel
-   wider than the sample) and warns only above a threshold taken from the
+   wider than the sample) and acts only above a threshold taken from the
    measurements: every pixel whose real error reached 8 levels had a spread of
    at least 54.6, and no pixel under a spread of 16 exceeded 3 levels, so the
    threshold sits at **24**, in the empty gap. On a real MIUI screenshot that
    fires on 1.97% of pixels; on flat dark chrome (`#181C27`) the median spread
-   is 1.2. Move the point two or more pixels inside a single flat colour — but
-   **thin coloured text has no inside**, so for a figure you intend to cite,
-   use a PNG screenshot.
+   is 1.2.
+
+1b. **What the app does about it: an uncertainty band, not a warning.** Above
+   that threshold the app stops reporting a single number and reports the range
+   the reading could really be — because a warning beside an authoritative
+   number is still an authoritative number. The band uses the asymmetry of the
+   damage: luma is stored **per pixel** and survives, chroma is stored **per
+   2x2 block** and does not. So the sampled pixel's brightness is known, its
+   colour is not, and the colours it could have been are its own luma combined
+   with each chroma actually present within one pixel of it. On the worst case
+   above that reconstructs `#FF0000` **exactly** from the damaged `#A2243A`, so
+   the band's low end lands on the truth: `4.00 – 8.59:1`, and SC 1.4.3 AA for
+   normal text reads **Unknown** instead of a false AAA pass.
+   - **The gamut boundary breaks the luma argument**, and this was found by
+     measuring rather than reasoning. A decoder clamps to 0-255, so a *white*
+     pixel given a foreign chroma cannot decode back to white and its luma is
+     cut. Built on the decoded luma alone, white text on this app's own blue
+     gives a band of `5.74 – 6.38:1` around a true `6.70:1` — missing it. A
+     channel sitting exactly at 0 or 255 is the signature of that cut, and
+     where it appears the candidate lumas extend to the neighbouring lumas on
+     that side only, so a light sample never acquires a dark twin.
+   - Checked against the damage model over 12 realistic UI colours, every
+     ordered pair and three block mixes — 390 banded readings, 118 of them
+     clamped: the band contains the true ratio in **390 of 390**, mean width
+     0.83 ratio points. **89.1%** of the threshold decisions are still
+     answered, so the band does not degenerate into "unknown" for everything.
+     In **81** of those readings the single stored value would have given the
+     **wrong** pass/fail; all 81 now read Unknown, and none reads wrongly.
+   - Narrow the band by moving a point two or more pixels inside a single flat
+     colour — but **thin coloured text has no inside**, so for a figure you
+     intend to cite, use a PNG screenshot. Android itself captures PNG; it is
+     the OEM skin that re-encodes.
+   - **Averaged patches get no band.** The argument above is a per-pixel claim.
+     Substituting one chroma across a whole patch would assume the patch is a
+     single colour — true exactly when the spread is low, i.e. when no band is
+     needed, and false exactly when it is. Rather than ship a derivation that
+     fails on the case it exists for, 3x3/5x5 keep the full warning and no
+     band. Single-pixel sampling is the default.
 2. **Anti-aliasing and sub-pixel text.** The pixel you touch may be a blend of
    text and background. Zoom in and pick the solid core of a glyph stroke, or
    use the explicitly labelled averaged patch knowingly.

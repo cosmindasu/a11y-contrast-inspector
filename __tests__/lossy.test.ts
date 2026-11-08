@@ -3,6 +3,7 @@ import {
   chromaSpreadOfRgba,
   lossyWarning,
   LOSSY_WARNING,
+  LOSSY_WARNING_BANDED,
   LOSSY_SPREAD_THRESHOLD,
 } from '../src/lossy';
 
@@ -116,6 +117,24 @@ describe('lossyWarning', () => {
   it('says nothing before any point is placed', () => {
     expect(lossyWarning('jpeg', [null, null])).toBeNull();
     expect(lossyWarning('jpeg', [])).toBeNull();
+  });
+
+  it('switches to the short text when a band is already on screen', () => {
+    const at = (chromaSpread: number) => ({ chromaSpread });
+    expect(lossyWarning('jpeg', [at(200)], true)).toBe(LOSSY_WARNING_BANDED);
+    expect(lossyWarning('jpeg', [at(200)], false)).toBe(LOSSY_WARNING);
+    // The gate is unchanged: `banded` picks the wording, never whether to warn.
+    expect(lossyWarning('jpeg', [at(0)], true)).toBeNull();
+    expect(lossyWarning('png', [at(200)], true)).toBeNull();
+  });
+
+  it('keeps the remedy in the short text too, since it replaces the long one', () => {
+    expect(LOSSY_WARNING_BANDED).toContain('JPEG');
+    expect(LOSSY_WARNING_BANDED).toContain('PNG');
+    expect(LOSSY_WARNING_BANDED).toMatch(/two or more pixels inside/);
+    // It must NOT repeat the worst-case numbers: the band states them already.
+    expect(LOSSY_WARNING_BANDED).not.toContain('7.37');
+    expect(LOSSY_WARNING_BANDED.length).toBeLessThan(LOSSY_WARNING.length + 60);
   });
 
   it('carries the facts a reader needs to act, not just an alarm', () => {

@@ -51,10 +51,32 @@ export function toHex({ r, g, b }: RGB): string {
  * never display as "4.50".
  */
 export function formatRatio(ratio: number): string {
+  return `${truncate2(ratio).toFixed(2)}:1`;
+}
+
+/** Largest k/100 with k/100 <= ratio. The contract of `formatRatio`, as a number. */
+export function truncate2(ratio: number): number {
   let k = Math.floor(ratio * 100);
   if (k / 100 > ratio) k -= 1;
   else if ((k + 1) / 100 <= ratio) k += 1;
-  return `${(k / 100).toFixed(2)}:1`;
+  return k / 100;
+}
+
+/**
+ * Smallest k/100 with k/100 >= ratio — the mirror of `truncate2`, with the same
+ * no-epsilon correction.
+ *
+ * This is the right direction for the TOP of an uncertainty band: rounding the
+ * top up and the bottom down makes the band shown on screen a superset of the
+ * computed one, so display can never make the uncertainty look smaller than it
+ * is. (`truncate2` alone is right for a single reading, where overstating
+ * contrast is the failure to avoid.)
+ */
+export function roundUp2(ratio: number): number {
+  let k = Math.ceil(ratio * 100);
+  if (k / 100 < ratio) k += 1;
+  else if ((k - 1) / 100 >= ratio) k -= 1;
+  return k / 100;
 }
 
 /**

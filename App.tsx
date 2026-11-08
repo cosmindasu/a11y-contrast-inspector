@@ -7,7 +7,7 @@ import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-cont
 import { relativeLuminance } from './src/contrast';
 import type { PixelPoint } from './src/coords';
 import { ignoredNotice, selectSharedImage } from './src/share';
-import { loadImage, samplePatch, samplePixel, sampleChromaSpread, type LoadedImage } from './src/pixels';
+import { loadImage, samplePatch, samplePixel, sampleNeighbourhood, type LoadedImage } from './src/pixels';
 import { Results, type Measured } from './src/Results';
 import { nextActive } from './src/selection';
 import { useTheme } from './src/theme';
@@ -19,6 +19,7 @@ type Mode = 1 | 3 | 5; // 1 = exact single pixel; 3/5 = explicit averaged patch
 function measure(img: LoadedImage, at: PixelPoint | null, mode: Mode): Measured | null {
   if (!at) return null;
   const exact = samplePixel(img, at.x, at.y); // always read: gives alpha too
+  const around = sampleNeighbourhood(img, at.x, at.y, mode);
   if (mode === 1) {
     return {
       at,
@@ -27,7 +28,8 @@ function measure(img: LoadedImage, at: PixelPoint | null, mode: Mode): Measured 
       alpha: exact.alpha,
       nonOpaque: exact.alpha < 255 ? 1 : 0,
       count: 1,
-      chromaSpread: sampleChromaSpread(img, at.x, at.y, 1),
+      chromaSpread: around.chromaSpread,
+      neighbourhood: around.colours,
     };
   }
   // Alpha is checked across EVERY sampled pixel, not just the centre one.
@@ -39,7 +41,8 @@ function measure(img: LoadedImage, at: PixelPoint | null, mode: Mode): Measured 
     alpha: patch.minAlpha,
     nonOpaque: patch.nonOpaqueCount,
     count: patch.count,
-    chromaSpread: sampleChromaSpread(img, at.x, at.y, mode),
+    chromaSpread: around.chromaSpread,
+    neighbourhood: around.colours,
   };
 }
 

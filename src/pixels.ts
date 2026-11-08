@@ -79,21 +79,36 @@ export function samplePatch(img: LoadedImage, x: number, y: number, size: number
   return averageRgba(readRect(img.image, b.x, b.y, b.width, b.height));
 }
 
+export interface Neighbourhood {
+  /** Every pixel within one pixel of the sample, including the sample itself. */
+  colours: RGB[];
+  /** Chroma variation across those pixels. */
+  chromaSpread: number;
+}
+
 /**
- * How much the colour information varies around a sample, read one pixel wider
- * than the sample itself so an edge just outside it still counts. This, and
- * not the sampled pixel's own colour, is what decides whether 4:2:0 chroma
- * subsampling could have moved the reading — see `lossy.ts`.
+ * What surrounds a sample, read one pixel wider than the sample itself so an
+ * edge just outside it still counts.
+ *
+ * This neighbourhood — and not the sampled pixel's own colour — is what decides
+ * whether 4:2:0 chroma subsampling could have moved the reading (`lossy.ts`)
+ * and how far it could have moved it (`band.ts`).
  *
  * Read-only and independent of the sampling path above: it never affects the
- * value returned for the point.
+ * value returned for the point. Both outputs come from one `readPixels` call,
+ * so the spread and the colours can never disagree about what was there.
  */
-export function sampleChromaSpread(
+export function sampleNeighbourhood(
   img: LoadedImage,
   x: number,
   y: number,
   size: number,
-): number {
+): Neighbourhood {
   const b = patchBounds(x, y, size + 2, img.width, img.height);
-  return chromaSpreadOfRgba(readRect(img.image, b.x, b.y, b.width, b.height));
+  const rgba = readRect(img.image, b.x, b.y, b.width, b.height);
+  const colours: RGB[] = [];
+  for (let i = 0; i + 2 < rgba.length; i += 4) {
+    colours.push({ r: rgba[i] ?? 0, g: rgba[i + 1] ?? 0, b: rgba[i + 2] ?? 0 });
+  }
+  return { colours, chromaSpread: chromaSpreadOfRgba(rgba) };
 }

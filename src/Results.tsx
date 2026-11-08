@@ -2,7 +2,8 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import type { ProfileInfo } from './colourProfile';
 import { assess, opacityProblem, type Assessable } from './assess';
-import { formatRatio, toHex, type RGB } from './contrast';
+import { bandFor, evaluateBand, formatBand, type Certainty } from './band';
+import { formatRatio, toHex, type Criterion, type RGB } from './contrast';
 import type { PixelPoint } from './coords';
 import { lossyWarning } from './lossy';
 import type { Theme } from './theme';
@@ -15,6 +16,44 @@ export interface Measured extends Assessable {
   count: number;
   /** Chroma variation around the sample; decides the JPEG warning. */
   chromaSpread: number;
+  /** The pixels within one pixel of the sample; feeds the uncertainty band. */
+  neighbourhood: readonly RGB[];
+}
+
+const LOOK: Record<Certainty, { key: 'pass' | 'fail' | 'warn'; mark: string; say: string }> = {
+  pass: { key: 'pass', mark: '✔ Pass', say: 'pass' },
+  fail: { key: 'fail', mark: '✘ Fail', say: 'fail' },
+  undetermined: {
+    key: 'warn',
+    mark: '? Unknown',
+    say: 'cannot be determined from this source',
+  },
+};
+
+function VerdictRow({
+  v,
+  certainty,
+  theme,
+}: {
+  v: Criterion;
+  certainty: Certainty;
+  theme: Theme;
+}) {
+  const look = LOOK[certainty];
+  return (
+    <View
+      style={styles.verdict}
+      accessible
+      accessibilityLabel={`SC ${v.sc} ${v.level}, ${v.label}, needs ${v.threshold} to 1: ${look.say}`}
+    >
+      <Text style={{ color: theme[look.key], fontWeight: '800', width: 80, fontSize: 15 }}>
+        {look.mark}
+      </Text>
+      <Text style={{ color: theme.text, flex: 1, fontSize: 15 }}>
+        {`SC ${v.sc} ${v.level} · ${v.label} · ${v.threshold}:1`}
+      </Text>
+    </View>
+  );
 }
 
 function Swatch({ name, m, theme }: { name: string; m: Measured | null; theme: Theme }) {
@@ -84,12 +123,15 @@ export function Results({
 }) {
   const result = a && b ? assess(a, b) : null;
   const ratio = result?.kind === 'result' ? result.ratio : null;
+  // What the stored pixels pin down, as opposed to what they read as. Null
+  // whenever a single number is the honest answer — see `band.ts`.
+  const band = result?.kind === 'result' ? bandFor(profile.format, a, b) : null;
   const warnings: string[] = [];
   const pw = profileWarning(profile);
   if (pw) warnings.push(pw);
   // A JPEG can be correctly tagged sRGB and still not be what was on screen:
   // 4:2:0 subsampling moves the one-pixel rim at every colour edge.
-  const lw = lossyWarning(profile.format, [a, b]);
+  const lw = lossyWarning(profile.format, [a, b], band !== null);
   if (lw) warnings.push(lw);
   // A point that is already measured but whose partner is not yet set still
   // deserves its transparency warning.
@@ -103,7 +145,26 @@ export function Results({
       <Swatch name="A" m={a} theme={theme} />
       <Swatch name="B" m={b} theme={theme} />
 
-      {result?.kind === 'result' && ratio !== null && (
+      {result?.kind === 'result' && ratio !== null && band !== null && (
+        <View
+          style={[styles.card, { borderColor: theme.warn }]}
+          accessible
+          accessibilityLabel={`Contrast ratio is between ${formatBand(band)}. The source does not pin it down further.`}
+        >
+          <Text style={{ color: theme.muted, fontSize: 14 }}>Contrast ratio — range</Text>
+          <Text style={{ color: theme.text, fontSize: 30, fontWeight: '800' }} selectable>
+            {formatBand(band)}
+          </Text>
+          <Text style={{ color: theme.muted, fontSize: 12 }}>
+            {`A range, not a reading. This JPEG stores colour at half resolution, so its pixels do not pin down what was on screen; every ratio in this range is consistent with them. A verdict is given only where the whole range falls on one side of the threshold. Read straight off the file, without that correction: ${formatRatio(ratio)}.`}
+          </Text>
+          {evaluateBand(band).map((v) => (
+            <VerdictRow key={v.id} v={v} certainty={v.certainty} theme={theme} />
+          ))}
+        </View>
+      )}
+
+      {result?.kind === 'result' && ratio !== null && band === null && (
         <View
           style={[styles.card, { borderColor: theme.border }]}
           accessible
@@ -120,19 +181,7 @@ export function Results({
               : ''}
           </Text>
           {result.verdicts.map((v) => (
-            <View
-              key={v.id}
-              style={styles.verdict}
-              accessible
-              accessibilityLabel={`SC ${v.sc} ${v.level}, ${v.label}, needs ${v.threshold} to 1: ${v.pass ? 'pass' : 'fail'}`}
-            >
-              <Text style={{ color: v.pass ? theme.pass : theme.fail, fontWeight: '800', width: 62, fontSize: 15 }}>
-                {v.pass ? '✔ Pass' : '✘ Fail'}
-              </Text>
-              <Text style={{ color: theme.text, flex: 1, fontSize: 15 }}>
-                {`SC ${v.sc} ${v.level} · ${v.label} · ${v.threshold}:1`}
-              </Text>
-            </View>
+            <VerdictRow key={v.id} v={v} certainty={v.pass ? 'pass' : 'fail'} theme={theme} />
           ))}
         </View>
       )}
