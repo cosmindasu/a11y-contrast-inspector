@@ -6,6 +6,7 @@ import {
   formatBand,
   CERTAINTY_MARK,
   CERTAINTY_SAY,
+  UNRECOVERABLE_NOTE,
   type Certainty,
 } from './band';
 import { formatRatio, toHex, type Criterion, type RGB } from './contrast';
@@ -24,6 +25,8 @@ export interface Measured extends Assessable {
   chromaSpread: number;
   /** The pixels within one pixel of the sample; feeds the uncertainty band. */
   neighbourhood: readonly RGB[];
+  /** Lumas of undamaged pixels nearby; decides whether a band may be trusted. */
+  cleanLumas: readonly number[];
 }
 
 const THEME_KEY: Record<Certainty, 'pass' | 'fail' | 'warn'> = {
@@ -114,11 +117,28 @@ export function Results({
   theme: Theme;
   share?: { label: string; busy: boolean; onPress: () => void };
 }) {
-  const { assessment: result, band, warnings } = report;
+  const { assessment: result, reading, warnings } = report;
   const ratio = result?.kind === 'result' ? result.ratio : null;
+  const band = reading.kind === 'band' ? reading.band : null;
+  const unrecoverable = reading.kind === 'unrecoverable';
 
   return (
     <View style={{ gap: 10 }}>
+      {result?.kind === 'result' && unrecoverable && (
+        <View
+          style={[styles.card, { borderColor: theme.fail }]}
+          accessible
+          accessibilityLabel={`No contrast result. ${UNRECOVERABLE_NOTE}`}
+        >
+          <Text style={{ color: theme.muted, fontSize: 14 }}>Contrast ratio</Text>
+          <Text style={{ color: theme.fail, fontSize: 30, fontWeight: '800' }}>Cannot be read</Text>
+          <Text style={{ color: theme.text, fontSize: 14 }}>{UNRECOVERABLE_NOTE}</Text>
+          <Text style={{ color: theme.muted, fontSize: 12 }}>
+            {`Read straight off the file, which this source does not support: ${formatRatio(ratio ?? 0)}.`}
+          </Text>
+        </View>
+      )}
+
       {result?.kind === 'result' && ratio !== null && band !== null && (
         <View
           style={[styles.card, { borderColor: theme.warn }]}
@@ -138,7 +158,7 @@ export function Results({
         </View>
       )}
 
-      {result?.kind === 'result' && ratio !== null && band === null && (
+      {result?.kind === 'result' && ratio !== null && band === null && !unrecoverable && (
         <View
           style={[styles.card, { borderColor: theme.border }]}
           accessible

@@ -1,5 +1,8 @@
 import {
   bandFor,
+  hasWitness,
+  readSource,
+  WITNESS_LUMA_TOLERANCE,
   candidateColours,
   candidateLumas,
   certaintyFor,
@@ -10,7 +13,7 @@ import {
   type BandPoint,
 } from '../src/band';
 import { contrastRatio, toHex, type RGB } from '../src/contrast';
-import { chroma, fromYCbCr, luma, LOSSY_SPREAD_THRESHOLD } from '../src/lossy';
+import { chroma, fromYCbCr, luma, LOSSY_SPREAD_THRESHOLD, LUMA_TOLERANCE } from '../src/lossy';
 
 const WHITE: RGB = { r: 255, g: 255, b: 255 };
 const RED: RGB = { r: 255, g: 0, b: 0 };
@@ -23,6 +26,10 @@ const point = (p: Partial<BandPoint> & { colour: RGB }): BandPoint => ({
   neighbourhood: [p.colour],
   chromaSpread: 0,
   count: 1,
+  // Witnessed by default: these fixtures are about the candidate maths. The
+  // witness rule has its own tests below, and the readings that lack a witness
+  // say so explicitly.
+  cleanLumas: [luma(p.colour)],
   ...p,
 });
 
@@ -85,10 +92,24 @@ describe('the YCbCr round trip the band rests on', () => {
 });
 
 describe('candidateLumas', () => {
-  it('gives exactly one luma when no channel sits at the gamut edge', () => {
-    expect(candidateLumas(DAMAGED_RED, rimNeighbourhood(DAMAGED_RED, RED, WHITE))).toEqual([
-      luma(DAMAGED_RED),
-    ]);
+  it('carries the decoded luma AND its error bar when nothing was clamped', () => {
+    // The decoded luma is a measurement: lossy.ts measured one level of
+    // movement, which is up to LUMA_TOLERANCE of luma. Treating it as exact is
+    // what made the band miss the truth on about half of all flat readings.
+    const y = luma(DAMAGED_RED);
+    const lumas = candidateLumas(DAMAGED_RED, rimNeighbourhood(DAMAGED_RED, RED, WHITE));
+    expect(lumas).toEqual([y, y - LUMA_TOLERANCE, y + LUMA_TOLERANCE]);
+  });
+
+  it('keeps a real neighbour luma that the error bar would round onto', () => {
+    // Regression: deduplicating bases and error bars in one pass with integer
+    // rounding let a synthetic `y - 1` occupy the slot of a genuine neighbour
+    // luma and discard it, costing containment on the readings the tolerance
+    // exists to rescue.
+    const px: RGB = { r: 0, g: 0x67, b: 0x71 }; // clamped at the bottom
+    const fg: RGB = { r: 0x16, g: 0x65, b: 0x34 }; // luma ~1.55 below px
+    const lumas = candidateLumas(px, [px, fg, fg, WHITE]);
+    expect(lumas.some((v) => Math.abs(v - luma(fg)) < 1e-9)).toBe(true);
   });
 
   it('extends upwards only, when a channel was cut off at 255', () => {
@@ -96,9 +117,10 @@ describe('candidateLumas', () => {
     expect(Math.max(px.r, px.g, px.b)).toBe(255); // precondition: it WAS cut
     const lumas = candidateLumas(px, rimNeighbourhood(px, WHITE, PRIMARY));
     expect(lumas).toContain(luma(WHITE));
-    // Nothing from the dark side: a light sample must not acquire a dark twin.
-    expect(Math.min(...lumas)).toBeCloseTo(luma(px), 9);
-    expect(lumas.every((y) => y >= luma(px))).toBe(true);
+    // Nothing from the dark side beyond the error bar: a light sample must not
+    // acquire a dark twin.
+    expect(Math.min(...lumas)).toBeCloseTo(luma(px) - LUMA_TOLERANCE, 9);
+    expect(lumas.every((y) => y >= luma(px) - LUMA_TOLERANCE)).toBe(true);
   });
 
   it('extends downwards only, when a channel was cut off at 0', () => {
@@ -106,7 +128,7 @@ describe('candidateLumas', () => {
     expect(Math.min(px.r, px.g, px.b)).toBe(0);
     const lumas = candidateLumas(px, rimNeighbourhood(px, CHROME, RED));
     expect(lumas).toContain(luma(CHROME));
-    expect(lumas.every((y) => y <= luma(px))).toBe(true);
+    expect(lumas.every((y) => y <= luma(px) + LUMA_TOLERANCE)).toBe(true);
   });
 });
 
@@ -116,10 +138,15 @@ describe('candidateColours', () => {
     expect(cs[0]).toEqual(DAMAGED_RED);
   });
 
-  it('collapses to the one colour across a chroma-flat area', () => {
-    expect(candidateColours(CHROME, [CHROME, CHROME, CHROME])).toEqual([CHROME]);
-    // Positive control: the same pixel next to something else does expand.
-    expect(candidateColours(CHROME, [CHROME, RED]).length).toBeGreaterThan(1);
+  it('stays within one level of the sample across a chroma-flat area', () => {
+    // One chroma, three lumas: the colour is pinned, its brightness is not.
+    const cs = candidateColours(CHROME, [CHROME, CHROME, CHROME]);
+    expect(cs[0]).toEqual(CHROME);
+    for (const c of cs) {
+      expect(Math.abs(luma(c) - luma(CHROME))).toBeLessThanOrEqual(LUMA_TOLERANCE + 0.5);
+    }
+    // Positive control: the same pixel next to something else expands further.
+    expect(candidateColours(CHROME, [CHROME, RED]).length).toBeGreaterThan(cs.length);
   });
 
   it('recovers the true colour of the measured worst case exactly', () => {
@@ -225,38 +252,72 @@ describe('the band contains the truth', () => {
   });
 });
 
-describe('the one case the band cannot cover', () => {
-  it('misses the truth for a stroke so thin it has no undamaged interior', () => {
-    // The band's candidates come from the chroma values PRESENT around the
-    // sample. A one-pixel-wide red stroke on white has no interior, so the
-    // real #FF0000 chroma never appears in the neighbourhood and cannot be
-    // offered. This is a limit of the source, not of the method: nothing in a
-    // single 4:2:0 screenshot records what that stroke's colour was.
-    //
-    // It is asserted rather than left implicit so that nobody reads the
-    // property test above as an unconditional guarantee. The warning shown
-    // beside every band says so on screen.
-    const px = decodeAtEdge(RED, WHITE, 2);
-    const allRim = [px, px, px, px, WHITE, WHITE, WHITE, px, px]; // no clean red
+describe('a reading with no undamaged witness is refused, not answered', () => {
+  // THE DEFECT THIS EXISTS FOR, found by an independent audit:
+  // a one-pixel red stroke on white is truly 4.00:1 and FAILS AA for normal
+  // text. The app reported a band of 7.17 to 8.59 and therefore a confident
+  // PASS at every level, AAA included. The band was narrow and wrong because
+  // every pixel in the neighbourhood is rim: they all carry the same blended
+  // chroma, which looks exactly like a consensus.
+  const px = decodeAtEdge(RED, WHITE, 2);
+  const allRim = [px, px, px, px, WHITE, WHITE, WHITE, px, px];
+
+  it('refuses the reading instead of reporting a pass on text that fails', () => {
+    const reading = readSource(
+      'jpeg',
+      point({ colour: px, neighbourhood: allRim, chromaSpread: 999, cleanLumas: [luma(WHITE)] }),
+      point({ colour: WHITE }),
+    );
+    expect(reading.kind).toBe('unrecoverable');
+
+    // The band maths on its own still produces the wrong confident answer,
+    // which is exactly why the witness rule sits in front of it.
     const band = bandFor(
       'jpeg',
       point({ colour: px, neighbourhood: allRim, chromaSpread: 999 }),
       point({ colour: WHITE }),
     );
-    expect(band).not.toBeNull();
-    const truth = contrastRatio(RED, WHITE);
-    expect(truth).toBeLessThan(band!.low); // the truth is below the whole band
+    expect(certaintyFor(band!, 4.5)).toBe('pass');
+    expect(contrastRatio(RED, WHITE)).toBeLessThan(4.5); // ...on a pair that fails
+  });
 
-    // Positive control: one clean red pixel in the same neighbourhood is
-    // enough to bring the truth back inside.
+  it('answers again as soon as one undamaged pixel of that colour exists', () => {
+    // A thicker stroke has an inside, and the inside is a witness.
     const withInterior = [px, RED, px, px, WHITE, WHITE, WHITE, px, px];
-    const fixed = bandFor(
+    const reading = readSource(
       'jpeg',
-      point({ colour: px, neighbourhood: withInterior, chromaSpread: 999 }),
+      point({
+        colour: px,
+        neighbourhood: withInterior,
+        chromaSpread: 999,
+        cleanLumas: [luma(RED), luma(WHITE)],
+      }),
       point({ colour: WHITE }),
     );
-    expect(fixed!.low).toBeLessThanOrEqual(truth);
-    expect(fixed!.high).toBeGreaterThanOrEqual(truth);
+    expect(reading.kind).toBe('band');
+    if (reading.kind !== 'band') return;
+    const truth = contrastRatio(RED, WHITE);
+    expect(reading.band.low).toBeLessThanOrEqual(truth);
+    expect(reading.band.high).toBeGreaterThanOrEqual(truth);
+  });
+});
+
+describe('hasWitness', () => {
+  it('accepts a clean pixel of the same brightness and rejects a distant one', () => {
+    expect(hasWitness(100, [100])).toBe(true);
+    expect(hasWitness(100, [100 + WITNESS_LUMA_TOLERANCE])).toBe(true);
+    expect(hasWitness(100, [100 + WITNESS_LUMA_TOLERANCE + 0.001])).toBe(false);
+    expect(hasWitness(100, [20, 240])).toBe(false);
+  });
+
+  it('is false when nothing nearby is undamaged at all', () => {
+    expect(hasWitness(100, [])).toBe(false);
+  });
+
+  it('uses a tolerance derived from the measurements, not a round number', () => {
+    // 3 levels is the most a pixel two or more from an edge was measured to
+    // move; the sample's own luma is uncertain by LUMA_TOLERANCE on top.
+    expect(WITNESS_LUMA_TOLERANCE).toBe(LUMA_TOLERANCE + 3);
   });
 });
 
@@ -328,7 +389,9 @@ describe('bandFor gating', () => {
       point({ colour: WHITE, neighbourhood: [WHITE, RED, CHROME], chromaSpread: 0 }),
     );
     expect(band).not.toBeNull();
-    expect(band!.low).toBeCloseTo(contrastRatio(RED, WHITE), 6);
+    // Within the luma error bar of the true ratio, and never above it.
+    expect(band!.low).toBeLessThanOrEqual(contrastRatio(RED, WHITE));
+    expect(band!.low).toBeGreaterThan(contrastRatio(RED, WHITE) - 0.1);
   });
 
   it('reports no band when it would be narrower than the two decimals shown', () => {

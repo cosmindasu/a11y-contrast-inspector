@@ -24,7 +24,7 @@ import { File } from 'expo-file-system';
 import type { RGB } from './contrast';
 import { inspectColourProfile, type ProfileInfo } from './colourProfile';
 import { averageRgba, patchBounds, type PatchResult } from './patch';
-import { chromaSpreadOfRgba } from './lossy';
+import { chromaSpreadOfColours, luma, LOSSY_SPREAD_THRESHOLD } from './lossy';
 
 /**
  * How the file reached the app. It decides whether `fileName` can be trusted:
@@ -98,6 +98,12 @@ export interface Neighbourhood {
   colours: RGB[];
   /** Chroma variation across those pixels. */
   chromaSpread: number;
+  /**
+   * Lumas of nearby pixels whose OWN neighbourhood is chroma-flat, i.e. that
+   * sit far enough from any colour edge to be undamaged. `band.ts` uses these
+   * to decide whether the sample's region exists anywhere in a readable state.
+   */
+  cleanLumas: number[];
 }
 
 /**
@@ -118,11 +124,38 @@ export function sampleNeighbourhood(
   y: number,
   size: number,
 ): Neighbourhood {
-  const b = patchBounds(x, y, size + 2, img.width, img.height);
-  const rgba = readRect(img.image, b.x, b.y, b.width, b.height);
+  // Read wide enough that every pixel we want to judge has its OWN 3x3
+  // available: the sample's neighbourhood is size+2, the pixels we test for
+  // cleanliness reach one further, and each of those needs one more again.
+  const outer = patchBounds(x, y, size + 6, img.width, img.height);
+  const rgba = readRect(img.image, outer.x, outer.y, outer.width, outer.height);
+  const at = (px: number, py: number): RGB => {
+    const i = ((py - outer.y) * outer.width + (px - outer.x)) * 4;
+    return { r: rgba[i] ?? 0, g: rgba[i + 1] ?? 0, b: rgba[i + 2] ?? 0 };
+  };
+  const inside = (px: number, py: number) =>
+    px >= outer.x && py >= outer.y && px < outer.x + outer.width && py < outer.y + outer.height;
+
+  const inner = patchBounds(x, y, size + 2, img.width, img.height);
   const colours: RGB[] = [];
-  for (let i = 0; i + 2 < rgba.length; i += 4) {
-    colours.push({ r: rgba[i] ?? 0, g: rgba[i + 1] ?? 0, b: rgba[i + 2] ?? 0 });
+  for (let py = inner.y; py < inner.y + inner.height; py++) {
+    for (let px = inner.x; px < inner.x + inner.width; px++) colours.push(at(px, py));
   }
-  return { colours, chromaSpread: chromaSpreadOfRgba(rgba) };
+
+  // A pixel is undamaged when its own surroundings carry no colour edge:
+  // `lossy.ts` measured the damage as confined to the one-pixel rim.
+  const scan = patchBounds(x, y, size + 4, img.width, img.height);
+  const cleanLumas: number[] = [];
+  for (let py = scan.y; py < scan.y + scan.height; py++) {
+    for (let px = scan.x; px < scan.x + scan.width; px++) {
+      if (!inside(px - 1, py - 1) || !inside(px + 1, py + 1)) continue;
+      const block: RGB[] = [];
+      for (let by = py - 1; by <= py + 1; by++) {
+        for (let bx = px - 1; bx <= px + 1; bx++) block.push(at(bx, by));
+      }
+      if (chromaSpreadOfColours(block) < LOSSY_SPREAD_THRESHOLD) cleanLumas.push(luma(at(px, py)));
+    }
+  }
+
+  return { colours, chromaSpread: chromaSpreadOfColours(colours), cleanLumas };
 }

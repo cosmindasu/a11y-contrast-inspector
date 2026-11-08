@@ -22,7 +22,14 @@
  *
  * Drawing it is `evidenceImage.ts`, which only lays out what it is given.
  */
-import { CERTAINTY_MARK, evaluateBand, formatBand, type Band, type Certainty } from './band';
+import {
+  CERTAINTY_MARK,
+  evaluateBand,
+  formatBand,
+  UNRECOVERABLE_NOTE,
+  type Certainty,
+  type SourceReading,
+} from './band';
 import { formatRatio, toHex, type RGB } from './contrast';
 import type { Assessment } from './assess';
 import type { ProfileInfo } from './colourProfile';
@@ -48,7 +55,7 @@ export interface EvidenceInput {
   a: EvidencePoint;
   b: EvidencePoint;
   assessment: Assessment;
-  band: Band | null;
+  reading: SourceReading;
   warnings: readonly string[];
   takenAt: Date;
   appVersion: string;
@@ -138,10 +145,19 @@ function reading(input: EvidenceInput): EvidenceReading {
     };
   }
   const exact = formatRatio(input.assessment.ratio);
-  if (input.band) {
+  if (input.reading.kind === 'unrecoverable') {
+    // Exporting a number here would be the worst thing this card could do: it
+    // would carry a confident figure out of the app into someone's report.
+    return {
+      label: 'Contrast ratio',
+      value: 'Cannot be read',
+      note: `${UNRECOVERABLE_NOTE} Read straight off the file, which this source does not support: ${exact}.`,
+    };
+  }
+  if (input.reading.kind === 'band') {
     return {
       label: 'Contrast ratio — range',
-      value: formatBand(input.band),
+      value: formatBand(input.reading.band),
       note:
         'A range, not a reading. The source cannot pin the ratio down further, ' +
         `and a verdict is given only where the whole range falls on one side of ` +
@@ -157,10 +173,13 @@ function reading(input: EvidenceInput): EvidenceReading {
 
 function verdicts(input: EvidenceInput): EvidenceVerdict[] {
   if (input.assessment.kind === 'suppressed') return [];
+  // No verdicts at all when the source cannot support one; a card with five
+  // rows of "Unknown" still invites someone to argue about them.
+  if (input.reading.kind === 'unrecoverable') return [];
   const label = (sc: string, level: string, text: string, threshold: number) =>
     `SC ${sc} ${level} · ${text} · ${threshold}:1`;
-  if (input.band) {
-    return evaluateBand(input.band).map((v) => ({
+  if (input.reading.kind === 'band') {
+    return evaluateBand(input.reading.band).map((v) => ({
       certainty: v.certainty,
       mark: CERTAINTY_MARK[v.certainty],
       text: label(v.sc, v.level, v.label, v.threshold),

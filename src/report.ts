@@ -8,7 +8,7 @@
  * not trustworthy. One pure function, one answer, testable.
  */
 import { assess, opacityProblem, type Assessable, type Assessment } from './assess';
-import { bandFor, type Band, type BandPoint } from './band';
+import { readSource, type BandPoint, type SourceReading } from './band';
 import type { ProfileInfo } from './colourProfile';
 import { lossyWarning } from './lossy';
 
@@ -17,8 +17,8 @@ export type ReportPoint = Assessable & BandPoint;
 export interface Report {
   /** Null until both points are placed. */
   assessment: Assessment | null;
-  /** Null when a single number is the honest answer — see `band.ts`. */
-  band: Band | null;
+  /** What this source can support: a single number, a range, or nothing. */
+  reading: SourceReading;
   warnings: string[];
 }
 
@@ -41,13 +41,17 @@ export function buildReport(
   profile: ProfileInfo,
 ): Report {
   const assessment = a && b ? assess(a, b) : null;
-  const band = assessment?.kind === 'result' ? bandFor(profile.format, a, b) : null;
+  const reading: SourceReading =
+    assessment?.kind === 'result' ? readSource(profile.format, a, b) : { kind: 'exact' };
   const warnings: string[] = [];
   const pw = profileWarning(profile);
   if (pw) warnings.push(pw);
   // A JPEG can be correctly tagged sRGB and still not be what was on screen:
   // 4:2:0 subsampling moves the one-pixel rim at every colour edge.
-  const lw = lossyWarning(profile.format, [a, b], band !== null);
+  // The short wording points at the range above it, so it only fits when there
+  // IS a range. An unrecoverable reading gets the full text, which already ends
+  // with the sentence that applies: thin coloured text has no inside.
+  const lw = lossyWarning(profile.format, [a, b], reading.kind === 'band');
   if (lw) warnings.push(lw);
   // A point that is already measured but whose partner is not yet set still
   // deserves its transparency warning.
@@ -55,5 +59,5 @@ export function buildReport(
     const w = m ? opacityProblem(name, m) : null;
     if (w) warnings.push(w);
   }
-  return { assessment, band, warnings };
+  return { assessment, reading, warnings };
 }

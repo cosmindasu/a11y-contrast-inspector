@@ -141,8 +141,13 @@ describe('lossyWarning', () => {
     // Guarding the key is not guarding the output: assert the produced text.
     expect(LOSSY_WARNING).toContain('JPEG');
     expect(LOSSY_WARNING).toContain('PNG');
-    expect(LOSSY_WARNING).toContain('4.00:1');
-    expect(LOSSY_WARNING).toContain('7.37:1');
+    // Truncated, like every other ratio this app prints. 3.9985 and 7.3691
+    // are the exact values; rounding them UP in the one string the user reads
+    // contradicted the app's own headline rule.
+    expect(LOSSY_WARNING).toContain('3.99:1');
+    expect(LOSSY_WARNING).toContain('7.36:1');
+    expect(LOSSY_WARNING).not.toContain('4.00:1');
+    expect(LOSSY_WARNING).not.toContain('7.37:1');
     expect(LOSSY_WARNING).toMatch(/two or more pixels inside/);
   });
 });

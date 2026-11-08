@@ -49,7 +49,7 @@ import {
   type Criterion,
   type RGB,
 } from './contrast';
-import { chroma, fromYCbCr, luma, LOSSY_SPREAD_THRESHOLD } from './lossy';
+import { chroma, fromYCbCr, luma, LOSSY_SPREAD_THRESHOLD, LUMA_TOLERANCE } from './lossy';
 
 export interface BandPoint {
   /** The stored colour of the sample. */
@@ -60,6 +60,52 @@ export interface BandPoint {
   chromaSpread: number;
   /** 1 for an exact single pixel; > 1 for an averaged patch. */
   count: number;
+  /**
+   * Lumas of nearby pixels that are far enough from any colour edge to be
+   * undamaged — see `hasWitness`. Empty means none was found.
+   */
+  cleanLumas: readonly number[];
+}
+
+/**
+ * How close an undamaged pixel's luma must be to the sample's to count as a
+ * witness for the sample's region.
+ *
+ * Derived, not chosen: `lossy.ts` measured that a pixel two or more pixels from
+ * an edge never moved by more than 3 levels, and the sample's own luma is
+ * uncertain by LUMA_TOLERANCE. Three levels on each channel move luma by at
+ * most 3, so a genuine witness cannot be further away than the sum.
+ */
+export const WITNESS_LUMA_TOLERANCE = LUMA_TOLERANCE + 3;
+
+/**
+ * Does the sample's own region appear anywhere undamaged?
+ *
+ * This is the precondition the band quietly assumed and never checked, and
+ * missing it is how the app came to report a confident AAA pass on text that
+ * fails AA. The candidates are built from the chroma values PRESENT around the
+ * sample. On a stroke one or two pixels wide every pixel is rim: they all carry
+ * the same blended chroma, which looks exactly like a consensus, so the band
+ * comes out narrow, confident and wrong — all of it on the same side.
+ *
+ * What distinguishes that case is not the chroma, which agrees, but that
+ * nothing nearby is CLEAN. `lossy.ts` measured the damage as confined to the
+ * one-pixel rim, so a pixel whose own neighbourhood is chroma-flat is
+ * undamaged. If no such pixel shares the sample's brightness, the sample's
+ * region has no undamaged example in reach and its true colour is simply not
+ * in the image.
+ *
+ * NECESSARY, NOT SUFFICIENT. A clean pixel at the same brightness might belong
+ * to a different region that happens to be equally bright. This check removes
+ * the case that was measured to be catastrophic; it does not make the band
+ * sound in general, and the warning shown with every band still says so.
+ */
+export function hasWitness(
+  sampleLuma: number,
+  cleanLumas: readonly number[],
+  tolerance: number = WITNESS_LUMA_TOLERANCE,
+): boolean {
+  return cleanLumas.some((y) => Math.abs(y - sampleLuma) <= tolerance);
 }
 
 /**
@@ -85,16 +131,53 @@ export function candidateLumas(pixel: RGB, neighbourhood: readonly RGB[]): numbe
   const y = luma(pixel);
   const atTop = pixel.r === 255 || pixel.g === 255 || pixel.b === 255;
   const atBottom = pixel.r === 0 || pixel.g === 0 || pixel.b === 0;
-  if (!atTop && !atBottom) return [y];
-  const seen = new Set([Math.round(y)]);
-  const out = [y];
-  for (const n of neighbourhood) {
-    const ny = luma(n);
-    if (!((atTop && ny > y) || (atBottom && ny < y))) continue;
-    const key = Math.round(ny);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(ny);
+
+  // Step 1: the lumas we have reason to believe in.
+  //
+  // A channel sitting exactly at 0 or 255 means the decoder may have CUT the
+  // value, so the true luma is only bounded on that side and the neighbouring
+  // lumas there are candidates too.
+  //
+  // Both at once (every saturated primary: #FF0000 has 255 and 0) used to open
+  // the gate in both directions and let a light sample acquire a dark twin,
+  // collapsing the band towards 1:1. A cut in both directions says nothing
+  // about which way the luma moved, so it is treated as no information rather
+  // than as licence to take everything.
+  const bases = [y];
+  if (atTop !== atBottom) {
+    const seenBase = new Set([Math.round(y)]);
+    for (const n of neighbourhood) {
+      const ny = luma(n);
+      if (!((atTop && ny > y) || (atBottom && ny < y))) continue;
+      const key = Math.round(ny);
+      if (seenBase.has(key)) continue;
+      seenBase.add(key);
+      bases.push(ny);
+    }
+  }
+
+  // Step 2: every one of those is a MEASUREMENT, not the truth. `lossy.ts`
+  // measured that a coloured pixel moves by one level, which moves luma by up
+  // to LUMA_TOLERANCE. Treating the decoded luma as exact is what made the
+  // band miss the true ratio on about half of all flat-block readings: the
+  // true colour was never among the candidates because every candidate had the
+  // wrong brightness.
+  //
+  // The error bar is applied AFTER the bases are chosen, and the two stages
+  // deduplicate differently on purpose. Doing it in one pass with integer
+  // rounding let a synthetic `y - 1` occupy the slot of a real neighbour luma
+  // and silently discard it — which cost containment on exactly the readings
+  // the tolerance was added to rescue.
+  const out: number[] = [];
+  const seen = new Set<string>();
+  for (const base of bases) {
+    for (const delta of [0, -LUMA_TOLERANCE, LUMA_TOLERANCE]) {
+      const v = base + delta;
+      const key = v.toFixed(3);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(v);
+    }
   }
   return out;
 }
@@ -186,7 +269,58 @@ export function bandFor(
     risky(p) ? candidateColours(p.colour, p.neighbourhood) : [p.colour];
   const band = ratioBand(candidates(a), candidates(b));
   if (band.high <= band.low) return null; // every candidate agreed
-  return roundUp2(band.high) <= truncate2(band.low) ? null : band;
+  // Narrower than the two decimals the app prints: a range of 4.5312 to 4.5319
+  // tells the reader nothing a single reading does not, and dressing it up as
+  // "4.53 - 4.54" invents uncertainty the maths does not support.
+  //
+  // This used to compare the FORMATTED ends, `roundUp2(high) <= truncate2(low)`,
+  // which can only hold when high equals low — already returned above. The
+  // guard was therefore unreachable and the documented behaviour never
+  // happened. Comparing the width is what the comment always meant.
+  return band.high - band.low < DISPLAY_RESOLUTION ? null : band;
+}
+
+/** Two decimals, the precision `formatBand` prints. */
+export const DISPLAY_RESOLUTION = 0.01;
+
+export const UNRECOVERABLE_NOTE =
+  'A sampled point sits on a colour edge and nothing of its own colour survives ' +
+  'undamaged nearby — a stroke one or two pixels wide has no inside. This file ' +
+  'does not record what that colour was, so no ratio and no verdict can be ' +
+  'given for it. Take the screenshot as PNG, or measure a thicker area of the ' +
+  'same colour.';
+
+/**
+ * What this source can honestly support: a single number, a range, or nothing.
+ *
+ * The third answer is the one that was missing. `bandFor` alone will always
+ * produce SOME band, and on a thin stroke that band is narrow, confident and
+ * wrong — measured: a true 4.00:1 reported as a range of 7.17 to 8.59, which
+ * reads as a pass at every level including AAA. A reading whose region has no
+ * undamaged witness is not a range, it is an absence, and the app now says so
+ * instead of answering.
+ */
+export type SourceReading =
+  | { kind: 'exact' }
+  | { kind: 'band'; band: Band }
+  | { kind: 'unrecoverable' };
+
+export function readSource(
+  format: 'png' | 'jpeg' | 'other',
+  a: BandPoint | null,
+  b: BandPoint | null,
+): SourceReading {
+  if (format !== 'jpeg' || !a || !b) return { kind: 'exact' };
+  if (a.count > 1 || b.count > 1) return { kind: 'exact' };
+  const risky = (p: BandPoint) => p.chromaSpread >= LOSSY_SPREAD_THRESHOLD;
+  if (!risky(a) && !risky(b)) return { kind: 'exact' };
+  for (const p of [a, b]) {
+    if (risky(p) && !hasWitness(luma(p.colour), p.cleanLumas)) {
+      return { kind: 'unrecoverable' };
+    }
+  }
+  const band = bandFor(format, a, b);
+  return band ? { kind: 'band', band } : { kind: 'exact' };
 }
 
 /**

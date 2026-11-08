@@ -16,7 +16,7 @@
  *     block straddles two colours: there the deviation reached 93 levels. At
  *     two pixels or more from an edge it falls back to one level.
  *   - Worst case: #FF0000 decoded as #A2243A. Against white that turns a real
- *     4.00:1 into a reported 7.37:1 — a 1.4.3 AA failure reported as a 1.4.6
+ *     3.99:1 into a reported 7.36:1 — a 1.4.3 AA failure reported as a 1.4.6
  *     AAA pass. The error is not symmetric: it overstates contrast, the one
  *     direction an accessibility tool must never drift in.
  *
@@ -89,13 +89,13 @@ export function fromYCbCr(y: number, cb: number, cr: number): RGB {
  * information varies over the sampled neighbourhood. 0 for a chroma-flat area,
  * whatever colour that area is.
  */
-export function chromaSpreadOfRgba(rgba: Uint8Array): number {
+export function chromaSpreadOfColours(colours: readonly RGB[]): number {
   let cbMin = Infinity;
   let cbMax = -Infinity;
   let crMin = Infinity;
   let crMax = -Infinity;
-  for (let i = 0; i + 2 < rgba.length; i += 4) {
-    const { cb, cr } = chroma({ r: rgba[i] ?? 0, g: rgba[i + 1] ?? 0, b: rgba[i + 2] ?? 0 });
+  for (const c of colours) {
+    const { cb, cr } = chroma(c);
     if (cb < cbMin) cbMin = cb;
     if (cb > cbMax) cbMax = cb;
     if (cr < crMin) crMin = cr;
@@ -105,8 +105,31 @@ export function chromaSpreadOfRgba(rgba: Uint8Array): number {
   return Math.max(cbMax - cbMin, crMax - crMin);
 }
 
+export function chromaSpreadOfRgba(rgba: Uint8Array): number {
+  const colours: RGB[] = [];
+  for (let i = 0; i + 2 < rgba.length; i += 4) {
+    colours.push({ r: rgba[i] ?? 0, g: rgba[i + 1] ?? 0, b: rgba[i + 2] ?? 0 });
+  }
+  return chromaSpreadOfColours(colours);
+}
+
 /** Derived above: no damaged pixel sat below 54.6, no safe pixel above 16. */
 export const LOSSY_SPREAD_THRESHOLD = 24;
+
+/**
+ * How far a decoded pixel's luma can be from the luma it had on screen.
+ *
+ * This is a BOUND, not a tuned constant. The measurement above says a coloured
+ * pixel moves by one level; one level on each channel moves
+ * Y' = 0.299R + 0.587G + 0.114B by at most 0.299 + 0.587 + 0.114 = 1.
+ *
+ * It matters because the uncertainty band used to treat the decoded luma as
+ * exact — "luma is stored per pixel, so the decoded value IS the true value" —
+ * which contradicts this file's own measurement. On flat blocks that made the
+ * band miss the true ratio about half the time: every candidate was built from
+ * a luma one level off, so the true colour was never among them.
+ */
+export const LUMA_TOLERANCE = 1;
 
 export interface LossyPoint {
   /** Chroma spread over the sampled neighbourhood, from `chromaSpreadOfRgba`. */
@@ -117,7 +140,7 @@ export const LOSSY_WARNING =
   'This is a JPEG, which stores colour at half resolution. A sample taken ' +
   'where the colour changes can decode a long way from the real screen ' +
   'colour, and the error usually reports MORE contrast than there is: ' +
-  'measured worst case, a true 4.00:1 read as 7.37:1. Move the point two or ' +
+  'measured worst case, a true 3.99:1 read as 7.36:1. Move the point two or ' +
   'more pixels inside a single flat colour — but thin coloured text has no ' +
   'inside. For a result you intend to cite, use a PNG screenshot.';
 

@@ -44,6 +44,7 @@ function measure(img: LoadedImage, at: PixelPoint | null, mode: Mode): Measured 
       count: 1,
       chromaSpread: around.chromaSpread,
       neighbourhood: around.colours,
+      cleanLumas: around.cleanLumas,
     };
   }
   // Alpha is checked across EVERY sampled pixel, not just the centre one.
@@ -57,6 +58,7 @@ function measure(img: LoadedImage, at: PixelPoint | null, mode: Mode): Measured 
     count: patch.count,
     chromaSpread: around.chromaSpread,
     neighbourhood: around.colours,
+    cleanLumas: around.cleanLumas,
   };
 }
 
@@ -178,7 +180,7 @@ function Main() {
         a,
         b,
         assessment: report.assessment,
-        band: report.band,
+        reading: report.reading,
         warnings: report.warnings,
         takenAt: now,
         appVersion: Constants.expoConfig?.version ?? 'unknown',

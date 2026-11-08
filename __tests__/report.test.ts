@@ -22,8 +22,14 @@ const pt = (colour: RGB, over: Partial<ReportPoint> = {}): ReportPoint => ({
   count: 1,
   chromaSpread: 0,
   neighbourhood: [colour],
+  cleanLumas: [relativeLuminance(colour) * 0 + lumaOf(colour)],
   ...over,
 });
+
+/** BT.601 luma, so a fixture can witness itself. */
+function lumaOf(c: RGB): number {
+  return 0.299 * c.r + 0.587 * c.g + 0.114 * c.b;
+}
 
 const rim = pt(DAMAGED, {
   chromaSpread: 999,
@@ -34,7 +40,7 @@ describe('buildReport', () => {
   it('reaches no verdict until both points exist', () => {
     expect(buildReport(pt(RED), null, PNG).assessment).toBeNull();
     expect(buildReport(null, pt(WHITE), PNG).assessment).toBeNull();
-    expect(buildReport(null, null, PNG).band).toBeNull();
+    expect(buildReport(null, null, PNG).reading.kind).toBe('exact');
     expect(buildReport(pt(RED), pt(WHITE), PNG).assessment?.kind).toBe('result');
   });
 
@@ -45,7 +51,7 @@ describe('buildReport', () => {
 
   it('pairs the band with the SHORT lossy warning, never both texts', () => {
     const r = buildReport(rim, pt(WHITE), JPEG);
-    expect(r.band).not.toBeNull();
+    expect(r.reading.kind).toBe('band');
     expect(r.warnings).toContain(LOSSY_WARNING_BANDED);
     expect(r.warnings).not.toContain(LOSSY_WARNING);
   });
@@ -53,14 +59,19 @@ describe('buildReport', () => {
   it('uses the long warning when no band is shown, so the facts are not lost', () => {
     // An averaged patch gets no band (see band.ts), so the full text applies.
     const r = buildReport({ ...rim, count: 9 }, { ...pt(WHITE), count: 9 }, JPEG);
-    expect(r.band).toBeNull();
+    expect(r.reading.kind).not.toBe('band');
     expect(r.warnings).toContain(LOSSY_WARNING);
   });
 
   it('says nothing about lossiness for a PNG, and gives no band', () => {
     const r = buildReport({ ...rim }, pt(WHITE), PNG);
-    expect(r.band).toBeNull();
-    expect(r.warnings.join(' ')).not.toMatch(/JPEG/);
+    expect(r.reading.kind).toBe('exact');
+    expect(r.warnings).toEqual([]);
+    // Positive control: the SAME points on a JPEG do produce a lossy warning,
+    // so the empty list above comes from the format and not from a guard that
+    // never fires. (Asserting `not.toMatch(/JPEG/)` on an empty array holds
+    // whatever the code does — an audit found that and it was worth finding.)
+    expect(buildReport({ ...rim }, pt(WHITE), JPEG).warnings.join(' ')).toMatch(/JPEG/);
   });
 
   it('carries a colour-profile warning alongside the rest', () => {
@@ -73,7 +84,7 @@ describe('buildReport', () => {
   it('gives no band for a suppressed result, which has no ratio to bracket', () => {
     const r = buildReport({ ...rim, alpha: 0, nonOpaque: 1 }, pt(WHITE), JPEG);
     expect(r.assessment?.kind).toBe('suppressed');
-    expect(r.band).toBeNull();
+    expect(r.reading.kind).not.toBe('band');
   });
 });
 

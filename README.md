@@ -32,14 +32,27 @@ hex and RGB, and the WCAG verdicts.
    by re-encoding `testdata/reference.png` with the settings read out of a real
    MIUI screenshot (quantisation tables all 1, 4:2:0) and comparing against the
    known originals:
-   - **Neutral pixels are safe.** 0.18% changed at all, and a 1px alternating
-     black/white stripe pattern survived bit for bit. Neutral means
-     `Cb = Cr = 128`, which subsampling cannot move.
+   - **Neutral pixels are safe only while their BLOCK is neutral.** 0.18% of
+     them changed at all. An earlier version of this README said a 1px
+     alternating black/white stripe pattern "survived bit for bit", and gave
+     the reason as `Cb = Cr = 128`, which subsampling cannot move. Both were
+     wrong, and an independent audit caught it: 181 of the 72,000 pixels in
+     that band changed, all of them in its last row, where the 2x2 chroma block
+     reaches into the coloured band below and brings its chroma back.
+     `#000000` decodes as `#2D0000`, turning a true 21.00:1 into 16.60:1 on an
+     adjacent pair. The rows that are wholly inside the pattern did survive bit
+     for bit. The mechanism is the one stated two bullets down — what matters
+     is the chroma around a pixel, not the pixel's own colour — and the tool
+     already behaves correctly here: the 3x3 spread at that pixel is 95, far
+     over the threshold, so it warns and bands. Only the claim was wrong.
    - **Coloured pixels** moved by exactly one level in 98.42% of cases, but the
      **one-pixel rim at a colour edge** reached 93 levels. At two pixels or
-     more from an edge the error falls back to one level.
-   - Worst case: `#FF0000` decoded as `#A2243A`, turning a real **4.00:1**
-     against white into a reported **7.37:1** — a 1.4.3 AA failure reported as
+     more from an edge the error falls back to one level for all but 14 pixels,
+     and never exceeds 3 — which is the figure the threshold below is actually
+     derived from. (This line used to say "falls back to one level" flatly,
+     contradicting the correct statement a few lines later.)
+   - Worst case: `#FF0000` decoded as `#A2243A`, turning a real **3.99:1**
+     against white into a reported **7.36:1** — a 1.4.3 AA failure reported as
      a 1.4.6 AAA pass. The error is **not symmetric**: it overstates contrast,
      the one direction an accessibility tool must not drift in.
    What decides the risk is **not** whether the sampled pixel is coloured, but
@@ -54,42 +67,68 @@ hex and RGB, and the WCAG verdicts.
    fires on 1.97% of pixels; on flat dark chrome (`#181C27`) the median spread
    is 1.2.
 
-1b. **What the app does about it: an uncertainty band, not a warning.** Above
-   that threshold the app stops reporting a single number and reports the range
-   the reading could really be — because a warning beside an authoritative
-   number is still an authoritative number. The band uses the asymmetry of the
-   damage: luma is stored **per pixel** and survives, chroma is stored **per
-   2x2 block** and does not. So the sampled pixel's brightness is known, its
-   colour is not, and the colours it could have been are its own luma combined
-   with each chroma actually present within one pixel of it. On the worst case
-   above that reconstructs `#FF0000` **exactly** from the damaged `#A2243A`, so
-   the band's low end lands on the truth: `4.00 – 8.59:1`, and SC 1.4.3 AA for
-   normal text reads **Unknown** instead of a false AAA pass.
-   - **The gamut boundary breaks the luma argument**, and this was found by
-     measuring rather than reasoning. A decoder clamps to 0-255, so a *white*
-     pixel given a foreign chroma cannot decode back to white and its luma is
-     cut. Built on the decoded luma alone, white text on this app's own blue
-     gives a band of `5.74 – 6.38:1` around a true `6.70:1` — missing it. A
-     channel sitting exactly at 0 or 255 is the signature of that cut, and
-     where it appears the candidate lumas extend to the neighbouring lumas on
-     that side only, so a light sample never acquires a dark twin.
-   - Checked against the damage model over 12 realistic UI colours, every
-     ordered pair and three block mixes — 390 banded readings, 118 of them
-     clamped: the band contains the true ratio in **390 of 390**, mean width
-     0.83 ratio points. **89.1%** of the threshold decisions are still
-     answered, so the band does not degenerate into "unknown" for everything.
-     In **81** of those readings the single stored value would have given the
-     **wrong** pass/fail; all 81 now read Unknown, and none reads wrongly.
-   - Narrow the band by moving a point two or more pixels inside a single flat
-     colour — but **thin coloured text has no inside**, so for a figure you
-     intend to cite, use a PNG screenshot. Android itself captures PNG; it is
-     the OEM skin that re-encodes.
+1b. **What the app does about it: a range, or a refusal.** Above that threshold
+   the app stops reporting a single number, because a warning beside an
+   authoritative figure is still an authoritative figure. It reports either the
+   range the reading could really be, answering a criterion only when the whole
+   range falls on one side of it — or nothing at all, when the source cannot
+   support an answer.
+
+   The range uses the asymmetry of the damage: luma is stored **per pixel**,
+   chroma **per 2x2 block**. So the sampled pixel's brightness is known to
+   within one level and its colour is not, and the colours it could have been
+   are its luma — with that error bar — combined with each chroma present
+   within one pixel of it.
+   - **The luma is a measurement, not a fact.** An earlier version treated the
+     decoded luma as exact, contradicting this file's own measurement that a
+     coloured pixel moves by one level. One level on each channel moves
+     `Y' = 0.299R + 0.587G + 0.114B` by at most 1, so that is the error bar.
+     Without it the band missed the true ratio on about half of all flat-block
+     readings: every candidate had the wrong brightness, so the true colour was
+     never among them. This was found by an independent audit, not by the
+     tests, which fed the band pristine neighbours and so tested their own
+     premise.
+   - **The gamut boundary breaks the luma argument**, and measuring rather than
+     reasoning is what found it. A decoder clamps to 0-255, so a *white* pixel
+     given a foreign chroma cannot decode back to white. A channel at exactly 0
+     or 255 is the signature; the candidate lumas then extend to the
+     neighbouring lumas on that side only. A pixel clamped at BOTH ends — every
+     saturated primary, `#FF0000` has 255 and 0 — says nothing about which way
+     the luma moved, so it gets no extension rather than both.
+   - **A reading with no undamaged witness is refused.** This is the serious
+     one. On a stroke one or two pixels wide every pixel is rim: they all carry
+     the same blended chroma, which looks exactly like a consensus, so the band
+     came out narrow, confident and WRONG — a true 3.99:1, which fails AA for
+     normal text, reported as 7.17-8.59:1 and therefore a pass at every level
+     including AAA. The candidates are built from the chroma values present,
+     and on a thin stroke the true one is not among them.
+
+     What distinguishes that case is not the chroma, which agrees, but that
+     nothing nearby is clean. Damage is confined to the one-pixel rim, so a
+     pixel whose own neighbourhood is chroma-flat is undamaged. If no such
+     pixel shares the sample's brightness — within 4 levels: 3 is the most a
+     pixel two or more from an edge was measured to move, plus the sample's own
+     1 — then the sample's region has no undamaged example in reach, and the
+     app says the reading cannot be made instead of answering it.
+
+     **Necessary, not sufficient.** A clean pixel at the same brightness might
+     belong to a different region that happens to be equally bright. This
+     removes the case that was measured to be catastrophic; it does not make
+     the band sound in general.
+   - Measured over 12 realistic UI colours, every ordered pair and three block
+     mixes. **Edge readings that do have an undamaged interior nearby:** 332
+     banded, the true ratio inside the band **332 of 332**, mean width 0.76,
+     and **90.5%** of threshold decisions still answered. In **105** of those
+     readings the single stored value would have given the wrong pass/fail;
+     after the band, **none** does. **Thin strokes:** of 132, **126 are
+     refused** outright and the remaining 6 produce no wrong verdict.
    - **Averaged patches get no band.** The argument above is a per-pixel claim.
      Substituting one chroma across a whole patch would assume the patch is a
      single colour — true exactly when the spread is low, i.e. when no band is
      needed, and false exactly when it is. Rather than ship a derivation that
      fails on the case it exists for, 3x3/5x5 keep the full warning and no
      band. Single-pixel sampling is the default.
+
 2. **Anti-aliasing and sub-pixel text.** The pixel you touch may be a blend of
    text and background. Zoom in and pick the solid core of a glyph stroke, or
    use the explicitly labelled averaged patch knowingly.

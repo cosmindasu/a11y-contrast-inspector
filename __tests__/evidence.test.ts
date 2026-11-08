@@ -28,7 +28,7 @@ const base = (over: Partial<EvidenceInput> = {}): EvidenceInput => ({
   a: { at: { x: 180, y: 400 }, colour: RED, count: 1 },
   b: { at: { x: 240, y: 400 }, colour: WHITE, count: 1 },
   assessment: resultAt(7.1842),
-  band: { low: 4.0, high: 8.5874 },
+  reading: { kind: 'band', band: { low: 3.9985, high: 8.5874 } },
   warnings: [LOSSY_WARNING_BANDED],
   takenAt: new Date(2026, 10, 8, 21, 14),
   appVersion: '1.0.0',
@@ -45,7 +45,7 @@ describe('evidenceCard: what the export is not allowed to lose', () => {
     const card = evidenceCard(
       base({
         assessment: { kind: 'suppressed', reasons: ['Point A: not fully opaque.'] },
-        band: null,
+        reading: { kind: 'exact' },
         warnings: ['a warning that must survive'],
       }),
     );
@@ -57,7 +57,7 @@ describe('evidenceCard: what the export is not allowed to lose', () => {
 
   it('makes the RANGE the headline and demotes the stored value to a note', () => {
     const card = evidenceCard(base());
-    expect(card.reading.value).toBe('4.00 – 8.59:1');
+    expect(card.reading.value).toBe('3.99 – 8.59:1');
     expect(card.reading.label).toContain('range');
     // The figure read off the file must not be the number on the card.
     expect(card.reading.value).not.toContain('7.18');
@@ -76,7 +76,7 @@ describe('evidenceCard: what the export is not allowed to lose', () => {
   });
 
   it('reports a single number when the source supports one', () => {
-    const card = evidenceCard(base({ profile: PNG, band: null, warnings: [], assessment: resultAt(4.5) }));
+    const card = evidenceCard(base({ profile: PNG, reading: { kind: 'exact' }, warnings: [], assessment: resultAt(4.5) }));
     expect(card.reading.label).toBe('Contrast ratio');
     expect(card.reading.value).toBe('4.50:1');
     expect(card.verdicts.map((v) => v.certainty)).not.toContain('undetermined');
@@ -117,7 +117,7 @@ describe('evidenceCard: what the export is not allowed to lose', () => {
   });
 
   it('does not call a PNG lossy', () => {
-    expect(evidenceCard(base({ profile: PNG, band: null })).footer.join(' ')).not.toContain('lossy');
+    expect(evidenceCard(base({ profile: PNG, reading: { kind: 'exact' } })).footer.join(' ')).not.toContain('lossy');
   });
 
   it('gives both points their hex, channels and coordinates', () => {
