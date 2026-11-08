@@ -26,12 +26,21 @@ import { inspectColourProfile, type ProfileInfo } from './colourProfile';
 import { averageRgba, patchBounds, type PatchResult } from './patch';
 import { chromaSpreadOfRgba } from './lossy';
 
+/**
+ * How the file reached the app. It decides whether `fileName` can be trusted:
+ * a share intent carries the real name, while `expo-image-picker` copies the
+ * file into the app's cache first and reports THAT copy's name, which on
+ * Android is the MediaStore id ("26.jpg") rather than the file's own name.
+ */
+export type ImageSource = 'share' | 'picker';
+
 export interface LoadedImage {
   image: SkImage;
   width: number;
   height: number;
   profile: ProfileInfo;
   fileName: string;
+  source: ImageSource;
 }
 
 export interface Sample {
@@ -40,7 +49,11 @@ export interface Sample {
 }
 
 /** Read a picked/shared image (file:// or content:// URI) and decode it. */
-export async function loadImage(uri: string, fileName: string): Promise<LoadedImage> {
+export async function loadImage(
+  uri: string,
+  fileName: string,
+  source: ImageSource,
+): Promise<LoadedImage> {
   const bytes = await new File(uri).bytes();
   const data = Skia.Data.fromBytes(bytes);
   const image = Skia.Image.MakeImageFromEncoded(data);
@@ -51,6 +64,7 @@ export async function loadImage(uri: string, fileName: string): Promise<LoadedIm
     height: image.height(),
     profile: inspectColourProfile(bytes),
     fileName,
+    source,
   };
 }
 

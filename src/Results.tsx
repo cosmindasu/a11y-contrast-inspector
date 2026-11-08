@@ -1,11 +1,17 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import type { ProfileInfo } from './colourProfile';
-import { assess, opacityProblem, type Assessable } from './assess';
-import { bandFor, evaluateBand, formatBand, type Certainty } from './band';
+import { type Assessable } from './assess';
+import {
+  evaluateBand,
+  formatBand,
+  CERTAINTY_MARK,
+  CERTAINTY_SAY,
+  type Certainty,
+} from './band';
 import { formatRatio, toHex, type Criterion, type RGB } from './contrast';
+import { Button } from './ui';
 import type { PixelPoint } from './coords';
-import { lossyWarning } from './lossy';
+import type { Report } from './report';
 import type { Theme } from './theme';
 
 export interface Measured extends Assessable {
@@ -20,14 +26,10 @@ export interface Measured extends Assessable {
   neighbourhood: readonly RGB[];
 }
 
-const LOOK: Record<Certainty, { key: 'pass' | 'fail' | 'warn'; mark: string; say: string }> = {
-  pass: { key: 'pass', mark: '✔ Pass', say: 'pass' },
-  fail: { key: 'fail', mark: '✘ Fail', say: 'fail' },
-  undetermined: {
-    key: 'warn',
-    mark: '? Unknown',
-    say: 'cannot be determined from this source',
-  },
+const THEME_KEY: Record<Certainty, 'pass' | 'fail' | 'warn'> = {
+  pass: 'pass',
+  fail: 'fail',
+  undetermined: 'warn',
 };
 
 function VerdictRow({
@@ -39,15 +41,15 @@ function VerdictRow({
   certainty: Certainty;
   theme: Theme;
 }) {
-  const look = LOOK[certainty];
+  const colourKey = THEME_KEY[certainty];
   return (
     <View
       style={styles.verdict}
       accessible
-      accessibilityLabel={`SC ${v.sc} ${v.level}, ${v.label}, needs ${v.threshold} to 1: ${look.say}`}
+      accessibilityLabel={`SC ${v.sc} ${v.level}, ${v.label}, needs ${v.threshold} to 1: ${CERTAINTY_SAY[certainty]}`}
     >
-      <Text style={{ color: theme[look.key], fontWeight: '800', width: 80, fontSize: 15 }}>
-        {look.mark}
+      <Text style={{ color: theme[colourKey], fontWeight: '800', width: 80, fontSize: 15 }}>
+        {CERTAINTY_MARK[certainty]}
       </Text>
       <Text style={{ color: theme.text, flex: 1, fontSize: 15 }}>
         {`SC ${v.sc} ${v.level} · ${v.label} · ${v.threshold}:1`}
@@ -97,48 +99,23 @@ function Swatch({ name, m, theme }: { name: string; m: Measured | null; theme: T
   );
 }
 
-function profileWarning(p: ProfileInfo): string | null {
-  switch (p.status) {
-    case 'non-srgb':
-      return `This file is tagged ${p.detail}. Values are NOT sRGB, so the ratio below is approximate and should not be cited as a WCAG result.`;
-    case 'unknown-icc':
-      return `This file has an embedded colour profile that could not be identified (${p.detail}). It may not be sRGB.`;
-    case 'unsupported-format':
-      return 'The colour space of this file format is not inspected. sRGB is assumed.';
-    default:
-      return null;
-  }
-}
-
 export function Results({
   a,
   b,
-  profile,
+  report,
+  formatLine,
   theme,
+  share,
 }: {
   a: Measured | null;
   b: Measured | null;
-  profile: ProfileInfo;
+  report: Report;
+  formatLine: string;
   theme: Theme;
+  share?: { label: string; busy: boolean; onPress: () => void };
 }) {
-  const result = a && b ? assess(a, b) : null;
+  const { assessment: result, band, warnings } = report;
   const ratio = result?.kind === 'result' ? result.ratio : null;
-  // What the stored pixels pin down, as opposed to what they read as. Null
-  // whenever a single number is the honest answer — see `band.ts`.
-  const band = result?.kind === 'result' ? bandFor(profile.format, a, b) : null;
-  const warnings: string[] = [];
-  const pw = profileWarning(profile);
-  if (pw) warnings.push(pw);
-  // A JPEG can be correctly tagged sRGB and still not be what was on screen:
-  // 4:2:0 subsampling moves the one-pixel rim at every colour edge.
-  const lw = lossyWarning(profile.format, [a, b], band !== null);
-  if (lw) warnings.push(lw);
-  // A point that is already measured but whose partner is not yet set still
-  // deserves its transparency warning.
-  for (const [n, m] of [['A', a], ['B', b]] as const) {
-    const w = m ? opacityProblem(n, m) : null;
-    if (w) warnings.push(w);
-  }
 
   return (
     <View style={{ gap: 10 }}>
@@ -196,6 +173,17 @@ export function Results({
         </View>
       )}
 
+      {share && result && (
+        <Button
+          label={share.label}
+          a11yLabel="Share this finding as an image, with its warnings and the source file details"
+          theme={theme}
+          kind="primary"
+          disabled={share.busy}
+          onPress={share.onPress}
+        />
+      )}
+
       {warnings.map((w) => (
         <View key={w} style={[styles.card, { borderColor: theme.warn }]} accessibilityRole="alert">
           <Text style={{ color: theme.warn, fontSize: 14, fontWeight: '600' }}>{`Warning: ${w}`}</Text>
@@ -205,7 +193,7 @@ export function Results({
       <Swatch name="A" m={a} theme={theme} />
       <Swatch name="B" m={b} theme={theme} />
       <Text style={{ color: theme.muted, fontSize: 12 }}>
-        {`File: ${profile.format.toUpperCase()}${profile.format === 'jpeg' ? ' (lossy)' : ''}. Colour space in file: ${profile.status} (${profile.detail}). Values are read as sRGB.`}
+        {formatLine}
       </Text>
     </View>
   );

@@ -258,6 +258,42 @@ form can truthfully say: no data collected, no data shared. (Re-check the
 merged manifest of the final AAB/APK with `aapt dump permissions` before
 submitting, and re-check whenever you add a dependency.)
 
+## Exporting a finding
+
+"Share this finding" renders the reading as a PNG and hands it to the Android
+share sheet. It exists because a screenshot of the app is a *worse* record:
+the panel scrolls, so the warnings and the source details are usually not in
+the picture, and the number travels without them.
+
+The card carries the crop with both points marked, the two sampled colours with
+their hex, channels and pixel coordinates, the ratio **or the range**, the
+per-criterion verdicts, every warning verbatim, and a footer naming the file,
+its format and colour space, the sampling mode, the time with its UTC offset,
+and the app version.
+
+Three rules are enforced in `src/evidence.ts` rather than left to the layout,
+and each has a test:
+
+- **warnings are never dropped**, including when there is no ratio at all;
+- where a band exists **the range is the headline**, and the figure read
+  straight off the file appears only as a subordinate note;
+- a suppressed result exports as one, with its reason and with no verdicts to
+  be quoted out of context.
+
+What the screen shows and what the card says come from one pure function
+(`src/report.ts`), so they cannot drift apart.
+
+**The filename is only as good as the route in.** A share intent carries the
+real name. `expo-image-picker` copies the file into the app's cache first and
+reports the COPY's name, which on Android is the MediaStore id — `26.jpg`, not
+`edge-420.jpg`. Printing that as the filename would make the record quietly
+false, so a card from the picker route carries a line saying where the name
+came from and how to get a traceable one. Use Share → Contrast Inspector when
+the finding has to be cited.
+
+The file is written to the app's cache and shared from there, which needs no
+storage permission — `READ/WRITE_EXTERNAL_STORAGE` stay blocked.
+
 ## Not included
 
 - **STRETCH, left out: 44x44 dp target-size overlay (SC 2.5.5).** Omitted to

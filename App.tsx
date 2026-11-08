@@ -1,20 +1,34 @@
+import Constants from 'expo-constants';
+import { File, Paths } from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
+import * as Sharing from 'expo-sharing';
 import { useShareIntent } from 'expo-share-intent';
 import { StatusBar } from 'expo-status-bar';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { relativeLuminance } from './src/contrast';
 import type { PixelPoint } from './src/coords';
+import { cropRect, evidenceCard, stamp, type SamplingMode } from './src/evidence';
+import { renderEvidence } from './src/evidenceImage';
+import { buildReport } from './src/report';
 import { ignoredNotice, selectSharedImage } from './src/share';
-import { loadImage, samplePatch, samplePixel, sampleNeighbourhood, type LoadedImage } from './src/pixels';
+import {
+  loadImage,
+  samplePatch,
+  samplePixel,
+  sampleNeighbourhood,
+  type ImageSource,
+  type LoadedImage,
+} from './src/pixels';
 import { Results, type Measured } from './src/Results';
 import { nextActive } from './src/selection';
 import { useTheme } from './src/theme';
 import { Button } from './src/ui';
 import { Viewer } from './src/Viewer';
 
-type Mode = 1 | 3 | 5; // 1 = exact single pixel; 3/5 = explicit averaged patch
+// 1 = exact single pixel; 3/5 = explicit averaged patch.
+type Mode = SamplingMode;
 
 function measure(img: LoadedImage, at: PixelPoint | null, mode: Mode): Measured | null {
   if (!at) return null;
@@ -58,12 +72,15 @@ function Main() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [sharing, setSharing] = useState(false);
+  // The last file we wrote into the cache, so a session does not leave a pile.
+  const lastExport = useRef<File | null>(null);
 
-  const open = useCallback(async (uri: string, name: string) => {
+  const open = useCallback(async (uri: string, name: string, source: ImageSource) => {
     setBusy(true);
     setError(null);
     try {
-      const loaded = await loadImage(uri, name);
+      const loaded = await loadImage(uri, name, source);
       setImg(loaded);
       setPoints([null, null]);
       setActive(0);
@@ -87,7 +104,7 @@ function Main() {
       base64: false,
     });
     const asset = res.canceled ? null : res.assets[0];
-    if (asset) await open(asset.uri, asset.fileName ?? 'image');
+    if (asset) await open(asset.uri, asset.fileName ?? 'image', 'picker');
   }, [open]);
 
   // Android share target: screenshot notification -> Share -> this app.
@@ -95,7 +112,7 @@ function Main() {
     if (!hasShareIntent) return;
     const sel = selectSharedImage(shareIntent.files);
     if (sel.file) {
-      void open(sel.file.path, sel.file.fileName);
+      void open(sel.file.path, sel.file.fileName, 'share');
       setNotice(ignoredNotice(sel));
     } else {
       setNotice(null);
@@ -137,6 +154,60 @@ function Main() {
   }, [img, points, mode]);
 
   const ok = measured && !(measured instanceof Error) ? measured : null;
+  // One source for the verdicts AND the export: see src/report.ts.
+  const report = useMemo(
+    () => (img ? buildReport(ok?.[0] ?? null, ok?.[1] ?? null, img.profile) : null),
+    [img, ok],
+  );
+
+  const shareEvidence = useCallback(async () => {
+    const a = ok?.[0];
+    const b = ok?.[1];
+    if (!img || !a || !b || !report?.assessment) return;
+    setSharing(true);
+    setError(null);
+    try {
+      const now = new Date();
+      const card = evidenceCard({
+        fileName: img.fileName,
+        imageWidth: img.width,
+        imageHeight: img.height,
+        profile: img.profile,
+        source: img.source,
+        mode,
+        a,
+        b,
+        assessment: report.assessment,
+        band: report.band,
+        warnings: report.warnings,
+        takenAt: now,
+        appVersion: Constants.expoConfig?.version ?? 'unknown',
+      });
+      const png = renderEvidence(card, img, cropRect(a.at, b.at, img.width, img.height), [a.at, b.at]);
+      // Named for whoever receives it, not for this app.
+      const name = `contrast-${stamp(now).slice(0, 16).replace(/[: ]/g, '-')}.png`;
+      const file = new File(Paths.cache, name);
+      file.create({ overwrite: true });
+      await file.write(png);
+      if (!(await Sharing.isAvailableAsync())) {
+        throw new Error('This device has nothing to share to.');
+      }
+      try {
+        lastExport.current?.delete();
+      } catch {
+        // A cache file the system already removed is not a problem.
+      }
+      lastExport.current = file;
+      await Sharing.shareAsync(file.uri, {
+        mimeType: 'image/png',
+        dialogTitle: 'Share this contrast finding',
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSharing(false);
+    }
+  }, [img, ok, report, mode]);
   const shownError = error ?? shareError ?? (measured instanceof Error ? measured.message : null);
 
   return (
@@ -205,7 +276,20 @@ function Main() {
                 is ~342dp tall and its content is ~824dp, so whatever is second
                 is already off-screen. Only point selection and nudging stay
                 above, because they are used WHILE reading the result. */}
-            <Results a={ok?.[0] ?? null} b={ok?.[1] ?? null} profile={img.profile} theme={theme} />
+            {report && (
+              <Results
+                a={ok?.[0] ?? null}
+                b={ok?.[1] ?? null}
+                report={report}
+                formatLine={`File: ${img.profile.format.toUpperCase()}${img.profile.format === 'jpeg' ? ' (lossy)' : ''}. Colour space in file: ${img.profile.status} (${img.profile.detail}). Values are read as sRGB.`}
+                theme={theme}
+                share={{
+                  label: sharing ? 'Preparing…' : 'Share this finding',
+                  busy: sharing,
+                  onPress: () => void shareEvidence(),
+                }}
+              />
+            )}
 
             <View style={styles.row}>
               <Text style={{ color: theme.text, fontSize: 14, fontWeight: '600' }}>Sampling:</Text>

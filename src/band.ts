@@ -197,6 +197,20 @@ export function bandFor(
  */
 export type Certainty = 'pass' | 'fail' | 'undetermined';
 
+/** Shared by the on-screen verdicts and the exported evidence card. */
+export const CERTAINTY_MARK: Record<Certainty, string> = {
+  pass: '\u2714 Pass',
+  fail: '\u2718 Fail',
+  undetermined: '? Unknown',
+};
+
+/** Spoken form, for accessibility labels and for the export's alt text. */
+export const CERTAINTY_SAY: Record<Certainty, string> = {
+  pass: 'pass',
+  fail: 'fail',
+  undetermined: 'cannot be determined from this source',
+};
+
 export function certaintyFor(band: Band, threshold: number): Certainty {
   if (band.low >= threshold) return 'pass';
   if (band.high < threshold) return 'fail';
