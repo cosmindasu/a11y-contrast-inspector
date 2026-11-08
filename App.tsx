@@ -181,7 +181,14 @@ function Main() {
           <View style={styles.viewerArea}>
             <Viewer image={img} points={points} theme={theme} onTapPixel={onTapPixel} />
           </View>
-          <ScrollView style={styles.panel} contentContainerStyle={{ gap: 10, paddingVertical: 8 }}>
+          <ScrollView
+            style={styles.panel}
+            // Android draws the scrollbar only while scrolling, so without this
+            // nothing says the panel has more in it. Measured: the content is
+            // ~824dp in a ~342dp window.
+            persistentScrollbar
+            contentContainerStyle={{ gap: 10, paddingVertical: 8 }}
+          >
             <View style={styles.row}>
               <Button label="Point A" theme={theme} selected={active === 0} onPress={() => setActive(0)} />
               <Button label="Point B" theme={theme} selected={active === 1} onPress={() => setActive(1)} />
@@ -194,6 +201,12 @@ function Main() {
               <Button label="▶" a11yLabel="Nudge right" theme={theme} onPress={() => nudge(1, 0)} />
             </View>
 
+            {/* The reading comes before the controls that produced it: the panel
+                is ~342dp tall and its content is ~824dp, so whatever is second
+                is already off-screen. Only point selection and nudging stay
+                above, because they are used WHILE reading the result. */}
+            <Results a={ok?.[0] ?? null} b={ok?.[1] ?? null} profile={img.profile} theme={theme} />
+
             <View style={styles.row}>
               <Text style={{ color: theme.text, fontSize: 14, fontWeight: '600' }}>Sampling:</Text>
               <Button label="Single pixel (exact)" theme={theme} selected={mode === 1} onPress={() => setMode(1)} />
@@ -204,7 +217,6 @@ function Main() {
             <Text style={{ color: theme.muted, fontSize: 12 }}>
               {`${img.fileName} · ${img.width}×${img.height} px`}
             </Text>
-            <Results a={ok?.[0] ?? null} b={ok?.[1] ?? null} profile={img.profile} theme={theme} />
           </ScrollView>
         </>
       )}
@@ -226,6 +238,10 @@ const styles = StyleSheet.create({
   title: { fontSize: 20, fontWeight: '800', flexShrink: 1 },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, paddingHorizontal: 16 },
   viewerArea: { flex: 5 },
-  panel: { flex: 4 },
+  // NOT `flex: 4`. Measured on a device: the shorthand is not honoured on a
+  // ScrollView — it laid out as `flex: 1`, giving the panel 128dp instead of
+  // 342dp, which is why the contrast ratio sat off-screen. Written out, the
+  // 5:4 split is exact.
+  panel: { flexGrow: 4, flexShrink: 1, flexBasis: 0 },
   row: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
 });

@@ -142,9 +142,6 @@ export function Results({
 
   return (
     <View style={{ gap: 10 }}>
-      <Swatch name="A" m={a} theme={theme} />
-      <Swatch name="B" m={b} theme={theme} />
-
       {result?.kind === 'result' && ratio !== null && band !== null && (
         <View
           style={[styles.card, { borderColor: theme.warn }]}
@@ -156,7 +153,7 @@ export function Results({
             {formatBand(band)}
           </Text>
           <Text style={{ color: theme.muted, fontSize: 12 }}>
-            {`A range, not a reading. This JPEG stores colour at half resolution, so its pixels do not pin down what was on screen; every ratio in this range is consistent with them. A verdict is given only where the whole range falls on one side of the threshold. Read straight off the file, without that correction: ${formatRatio(ratio)}.`}
+            {`A range, not a reading: this JPEG cannot pin the ratio down further, and a verdict is given only where the whole range falls on one side. Read straight off the file: ${formatRatio(ratio)}.`}
           </Text>
           {evaluateBand(band).map((v) => (
             <VerdictRow key={v.id} v={v} certainty={v.certainty} theme={theme} />
@@ -204,6 +201,9 @@ export function Results({
           <Text style={{ color: theme.warn, fontSize: 14, fontWeight: '600' }}>{`Warning: ${w}`}</Text>
         </View>
       ))}
+
+      <Swatch name="A" m={a} theme={theme} />
+      <Swatch name="B" m={b} theme={theme} />
       <Text style={{ color: theme.muted, fontSize: 12 }}>
         {`File: ${profile.format.toUpperCase()}${profile.format === 'jpeg' ? ' (lossy)' : ''}. Colour space in file: ${profile.status} (${profile.detail}). Values are read as sRGB.`}
       </Text>
