@@ -120,8 +120,37 @@ hex and RGB, and the WCAG verdicts.
      banded, the true ratio inside the band **332 of 332**, mean width 0.76,
      and **90.5%** of threshold decisions still answered. In **105** of those
      readings the single stored value would have given the wrong pass/fail;
-     after the band, **none** does. **Thin strokes:** of 132, **126 are
-     refused** outright and the remaining 6 produce no wrong verdict.
+     after the band, **none** does.
+   - **KNOWN GAP, and it is in the model rather than the code.** The paragraph
+     above premises that "a pixel at a colour edge receives the block average".
+     That is BOX chroma upsampling. libjpeg defaults to *fancy* (triangle)
+     upsampling and Skia never turns it off, so a decoded pixel's chroma is a
+     weighted blend smeared over about three pixels, and near a colour edge
+     **no pixel carries its region's true chroma at all**.
+
+     Verified here rather than argued: `testdata/` re-encoded 4:2:0, a 1px red
+     stroke decoded two ways and compared with what the app itself reports for
+     that pixel.
+
+     | pixel | fancy | box | the app (Skia) |
+     | --- | --- | --- | --- |
+     | the stroke | `#8E3030` | `#A42725` | **`#8E3030`** |
+     | its left neighbour | `#FFF6F4` | `#FFFFFF` | |
+
+     The consequence is that a candidate set built from *observed* chromas
+     cannot be relied on to contain the truth on a thin stroke, whatever
+     witness test guards it — the witness certifies that the colour exists
+     undamaged somewhere, not that its chroma is among the candidates. The
+     stroke figures quoted in earlier commit messages were measured against the
+     box-like model in `__tests__/band.test.ts`, so they overstate how often a
+     stroke is refused on a real decode. The refusal is real and it removes
+     many of these readings; it does not remove all of them.
+
+     Closing this properly means not deriving candidates from observed chromas
+     at all — luma survives to within one level, edge chroma does not survive —
+     and bounding the ratio over every colour of matching luma. That is
+     decoder-independent, and it costs wider bands and fewer answered
+     thresholds. Not done yet.
    - **Averaged patches get no band.** The argument above is a per-pixel claim.
      Substituting one chroma across a whole patch would assume the patch is a
      single colour — true exactly when the spread is low, i.e. when no band is
