@@ -302,6 +302,29 @@ describe('a reading with no undamaged witness is refused, not answered', () => {
   });
 });
 
+describe('a clamped sample is judged on the lumas it could have had', () => {
+  it('does not refuse a white pixel beside red just because the decoder cut it', () => {
+    // Measured on a device: white next to a red block decodes as #FFE3E1,
+    // luma 235 rather than 255, because the red chroma pushed R past 255.
+    // Comparing that apparent luma with the clean white around it refused a
+    // reading the band recovers perfectly well.
+    const px: RGB = { r: 255, g: 0xe3, b: 0xe1 };
+    expect(Math.round(luma(px))).toBe(235);
+    expect(hasWitness(luma(px), [luma(WHITE)])).toBe(false); // the old, wrong test
+    const reading = readSource(
+      'jpeg',
+      point({
+        colour: px,
+        neighbourhood: [px, WHITE, WHITE, RED, RED, WHITE, px, WHITE, RED],
+        chromaSpread: 999,
+        cleanLumas: [luma(WHITE)],
+      }),
+      point({ colour: WHITE }),
+    );
+    expect(reading.kind).toBe('band');
+  });
+});
+
 describe('hasWitness', () => {
   it('accepts a clean pixel of the same brightness and rejects a distant one', () => {
     expect(hasWitness(100, [100])).toBe(true);

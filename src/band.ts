@@ -315,7 +315,14 @@ export function readSource(
   const risky = (p: BandPoint) => p.chromaSpread >= LOSSY_SPREAD_THRESHOLD;
   if (!risky(a) && !risky(b)) return { kind: 'exact' };
   for (const p of [a, b]) {
-    if (risky(p) && !hasWitness(luma(p.colour), p.cleanLumas)) {
+    // Against the lumas the sample COULD have had, not the one it decoded to.
+    // A pixel clamped at the gamut boundary reads back at the wrong brightness
+    // — measured on a device: a white pixel beside a red block decodes as
+    // #FFE3E1, whose luma is 235 rather than 255, because the red chroma
+    // pushed R past 255 and the decoder cut it. Comparing that apparent luma
+    // against the clean white around it refused a reading the band recovers
+    // perfectly well.
+    if (risky(p) && !candidateLumas(p.colour, p.neighbourhood).some((y) => hasWitness(y, p.cleanLumas))) {
       return { kind: 'unrecoverable' };
     }
   }
