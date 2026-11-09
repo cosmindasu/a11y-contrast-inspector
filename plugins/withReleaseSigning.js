@@ -34,7 +34,21 @@ const RELEASE_SIGNING_CONFIG = `
 
 const RELEASE_SIGNING_CHOICE = `            if (System.getenv("ANDROID_KEYSTORE_PATH")) {
                 signingConfig signingConfigs.release
+            } else if (System.getenv("EAS_BUILD_PROFILE") in ["preview", "production"]) {
+                // A build on one of these profiles exists to be handed to
+                // someone. Falling back to the debug key here would produce an
+                // artefact that installs, looks finished, and is signed with a
+                // key whose password is the public string 'android'. A warning
+                // is not enough for that: EAS prints thousands of lines and
+                // nobody reads the middle of them.
+                throw new GradleException(
+                    "Refusing to build profile '" + System.getenv("EAS_BUILD_PROFILE") +
+                    "' with the debug key. Set ANDROID_KEYSTORE_PATH, " +
+                    "ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS and ANDROID_KEY_PASSWORD, " +
+                    "or build a profile that is not meant for distribution.")
             } else {
+                // A local release build with no keystore is the normal way to
+                // test one, so this stays a warning.
                 logger.warn("")
                 logger.warn("*** This release build is signed with the DEBUG key. ***")
                 logger.warn("    Its password is public ('android'), so the APK is fine for")

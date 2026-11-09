@@ -36,6 +36,17 @@ describe('withReleaseSigning', () => {
     expect(out).toMatch(/signingConfigs\s*\{[\s\S]*release\s*\{/);
   });
 
+  it('refuses to build a distribution profile with the debug key', () => {
+    // A warning is the right answer for a local release build, which is how
+    // one is tested. It is the wrong answer for a profile whose whole purpose
+    // is to hand someone an installable artefact.
+    expect(out).toContain('EAS_BUILD_PROFILE');
+    expect(out).toContain('GradleException');
+    expect(out).toMatch(/\["preview", "production"\]/);
+    // The throw must come BEFORE the fallback, or it can never be reached.
+    expect(out.indexOf('GradleException')).toBeLessThan(out.indexOf('signingConfigs.debug\n            }'));
+  });
+
   it('points the release build type at it, and warns when falling back', () => {
     expect(out).toContain('signingConfig signingConfigs.release');
     expect(out).toContain('DEBUG key');
