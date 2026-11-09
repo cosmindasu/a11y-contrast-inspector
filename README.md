@@ -137,17 +137,43 @@ hex and RGB, and the WCAG verdicts.
      been observed to produce a wrong Pass.** For an auditor that is the
      direction that matters.
 
-   **The binding constraint has moved from the window to the number.** The
-   surviving silent errors sit just under the gate — that 84-level one is at a
-   spread of 23.4 against a threshold of 24. `LOSSY_SPREAD_THRESHOLD` was
-   fitted to a 3x3 window on `reference.png` and now gates a 5x5, which
-   measures a different quantity; it has never been derived for the window it
-   applies to. Re-deriving it is the next measurement and a genuine trade:
-   lower it and ordinary readings start being refused.
+   **The threshold, re-derived.** Those surviving silent errors all sat just
+   under the gate — the 84-level one at a spread of 23.4 against a threshold of
+   24. That threshold was fitted to a 3x3 window on `reference.png` and was
+   left alone when the window grew to 5x5, so it was gating a quantity it had
+   never been measured against.
 
-   Until then: **a reading taken on or near small coloured text can still be
-   silently wrong, in the direction of passing.** Use a PNG screenshot for
-   anything you intend to cite.
+   `reference.png` cannot settle it: seven flat colours, no text, and one of
+   them (`#FFFFFF`) sits 0.005 above the 4.5:1 threshold against the probe
+   background, so a one-level wobble flips 90,000 pixels at once and swamps
+   everything else. The measurement needed content this tool is actually used
+   on, so it was made on a 360x640 mock of a settings screen: anti-aliased text
+   at 12-18px, coloured labels and buttons on light cards over dark chrome,
+   1591 distinct colours, 2.9% of pixels damaged after a 4:2:0 round trip.
+
+   | threshold | silent wrong verdicts | undamaged pixels gated | refused |
+   | --- | --- | --- | --- |
+   | 24 (was) | 131 | 0.76% | 0.05% |
+   | 16 | 30 | 1.13% | 0.06% |
+   | **12 (now)** | **4** | 1.42% | 0.08% |
+   | 8 | 4 | 1.82% | 0.08% |
+
+   12 is where silent wrong verdicts reach their floor; below it nothing
+   further is caught and the cost keeps rising. It is not a trade against
+   utility either — among gated readings the share of criteria actually
+   *answered* rises from 40.2% to 46.0%, because the extra readings it catches
+   are mostly ones the band decides confidently. The whole cost is that 1.42%
+   rather than 0.76% of undamaged pixels get a range instead of a single
+   number.
+
+   The same constant decides both "might this reading be damaged" and "is this
+   pixel safe to witness another", deliberately: a pixel cannot coherently be
+   at risk by one measure and a clean witness by the same measure at a
+   different number.
+
+   **Still true:** a reading taken on or near small coloured text can be
+   silently wrong, and four such verdicts survive even at 12 on the content
+   measured. Use a PNG screenshot for anything you intend to cite.
 
 2. **Anti-aliasing and sub-pixel text.** The pixel you touch may be a blend of
    text and background. Zoom in and pick the solid core of a glyph stroke, or

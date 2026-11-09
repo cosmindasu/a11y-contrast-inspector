@@ -109,9 +109,30 @@ describe('lossyWarning', () => {
     expect(lossyWarning('jpeg', [at(LOSSY_SPREAD_THRESHOLD - 0.001)])).toBeNull();
   });
 
-  it('keeps the measured gap: no damaged pixel below 54.6, no safe one above 16', () => {
-    expect(LOSSY_SPREAD_THRESHOLD).toBeGreaterThan(16);
-    expect(LOSSY_SPREAD_THRESHOLD).toBeLessThan(54.6);
+  it('catches the damaged readings that were measured slipping past it', () => {
+    // Not three literals compared with each other — an audit called the old
+    // version of this test out for exactly that. These are spreads recorded
+    // on real decoded pixels that carried real, wrong verdicts.
+    const slippedPastTheOldThreshold = [
+      23.4, // #1D4ED8 -> #3B4F84, 84 levels, shown 7.23:1 against a true 6.08:1
+      23.2, // same stroke, adjacent pixel
+      21.5, // #B91C1C -> #74393B, 69 levels, shown 7.98:1 against a true 5.87:1
+      20.9, // #1D4ED8 -> #414E70, 104 levels
+      14.9, // #FFFFFF -> #FFF6F4, 11 levels
+      13.4, // #166534 -> #3B4F44, 37 levels, shown 7.99:1 against a true 6.48:1
+    ];
+    for (const spread of slippedPastTheOldThreshold) {
+      expect(lossyWarning('jpeg', [{ chromaSpread: spread }])).toBe(LOSSY_WARNING);
+    }
+  });
+
+  it('still says nothing about flat chrome, which is what a low threshold risks', () => {
+    // Measured on a real MIUI screenshot: #181C27 has a median 3x3 spread of
+    // 1.2 and a 90th percentile of 2.2. Lowering the threshold must not start
+    // banding a flat dark background.
+    for (const spread of [0, 1.2, 2.2, 5]) {
+      expect(lossyWarning('jpeg', [{ chromaSpread: spread }])).toBeNull();
+    }
   });
 
   it('says nothing before any point is placed', () => {

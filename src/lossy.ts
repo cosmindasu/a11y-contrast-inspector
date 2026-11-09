@@ -127,12 +127,44 @@ export function chromaSpreadOfRgba(rgba: Uint8Array): number {
 }
 
 /**
- * Fitted to a 3x3 window on `testdata/reference.png`, where no damaged pixel
- * sat below a spread of 54.6 and no safe pixel above 16. It now gates a 5x5
- * window on all content, which is a different measurement — see the note
- * above. Not yet re-derived.
+ * Re-derived for the window it actually gates, and for content this tool is
+ * used on.
+ *
+ * The old value of 24 was fitted to a 3x3 window on `testdata/reference.png` —
+ * seven flat colours and a neutral stripe band, no text. When the window grew
+ * to 5x5 the number was left alone, so it was gating a quantity it had never
+ * been measured against.
+ *
+ * Re-measured on a 360x640 mock of a real settings screen: anti-aliased text
+ * at 12-18px, coloured labels and buttons on light cards over dark chrome,
+ * 1591 distinct colours, 2.9% of pixels damaged by 8 levels or more after a
+ * 4:2:0 round trip. For each candidate threshold, what reaches the user:
+ *
+ *   threshold | silent wrong verdicts | undamaged pixels gated | refused
+ *          24 |                   131 |                  0.76% |   0.05%
+ *          16 |                    30 |                  1.13% |   0.06%
+ *          12 |                     4 |                  1.42% |   0.08%
+ *           8 |                     4 |                  1.82% |   0.08%
+ *
+ * 12 is where silent wrong verdicts reach their floor; below it the cost keeps
+ * rising and nothing further is caught. It is not a trade against utility
+ * either — among gated readings the share of criteria actually ANSWERED goes
+ * up, 40.2% at 24 to 46.0% at 12, because the extra readings it catches are
+ * mostly ones the band decides confidently. The whole cost is that 1.42%
+ * rather than 0.76% of undamaged pixels get a range instead of a single
+ * number.
+ *
+ * One constant, two uses, on purpose: it decides both "might this reading be
+ * damaged" and "is this pixel safe to witness another". A pixel cannot
+ * coherently be at risk by one measure and a clean witness by the same measure
+ * at a different number.
+ *
+ * `reference.png` cannot be used for this and is kept only as a decode
+ * fixture: with seven colours, one of which (#FFFFFF) sits 0.005 above the
+ * 4.5:1 threshold against the probe background, a one-level wobble flips
+ * 90,000 pixels at once and swamps every other signal.
  */
-export const LOSSY_SPREAD_THRESHOLD = 24;
+export const LOSSY_SPREAD_THRESHOLD = 12;
 
 /**
  * How far a decoded pixel's luma can be from the luma it had on screen.
