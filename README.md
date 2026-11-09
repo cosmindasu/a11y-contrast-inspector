@@ -65,127 +65,57 @@ hex and RGB, and the WCAG verdicts.
    at least 54.6, and no pixel under a spread of 16 exceeded 3 levels, so the
    threshold sits at **24**, in the empty gap.
 
-   **That gap is a property of `testdata/reference.png`, not of JPEG.** The
-   reference image is large flat blocks and one neutral stripe band; it
-   contains no thin coloured strokes, which is exactly the content an
-   accessibility auditor measures. Re-measured on text-like content — strokes
-   1 to 4 pixels wide, five foreground colours over three backgrounds, same
-   encoder settings:
+   **That gap was a property of `testdata/reference.png`, not of JPEG**, and
+   the window it was measured through was the wrong size. The reference image
+   is large flat blocks and one neutral stripe band; it contains no thin
+   coloured strokes, which is exactly the content an accessibility auditor
+   measures. On text-like content the relationship inverts: the chroma field is
+   smoothed across the whole stroke, so the error is large while the local
+   variation left to measure is small.
 
-   | content | damaged pixels (error >= 8) | lowest spread among them | missed by the threshold |
-   | --- | --- | --- | --- |
-   | `reference.png` | 1118 | 54.64 | **0 (0.0%)** |
-   | text-like strokes | 7998 | 7.73 | **1728 (21.6%)** |
+   The fix was not a smaller threshold but a wider window. A 3x3 is the
+   box-upsampling assumption — damage confined to the one-pixel rim. The
+   decoder smears chroma about two pixels, so every window here is now sized
+   from that radius instead. Measured across `reference.png` and two
+   stroke-bearing images, same threshold of 24:
 
-   The worst miss is `#1D4ED8` decoding as `#414E70` — **104 levels** of
-   channel error — with a 3x3 chroma spread of only 20.9, so the gate never
-   fires and the app shows a confident single number with no warning at all.
-   On a thin stroke the relationship inverts: the chroma field is smoothed
-   across the whole stroke, so the error is large while the local variation
-   left to measure is small. This happens under box upsampling too, so it is
-   not about the decoder.
+   | window | damaged pixels detected | undamaged pixels falsely flagged |
+   | --- | --- | --- |
+   | 3x3 (what shipped) | 81.1% | 0.4% |
+   | **5x5 (now)** | **98.2%** | **2.2%** |
+   | 7x7 | 98.2% | 4.4% |
 
-   The witness rule does not rescue it — measured, it catches 0% of these —
-   because "undamaged" is defined by the same low spread that let them
-   through, so such a pixel witnesses itself. Lowering the threshold is not
-   the answer either: the "fires on 1.97% of pixels" and "flat dark chrome
-   stays silent" properties were tuned against 24. The right number has to be
-   measured on content that includes thin coloured text, and that content is
-   not in this repository yet. **Until then, treat a reading taken on or near
-   small coloured text as unverified, whatever the app says.** On a real MIUI screenshot that
-   fires on 1.97% of pixels; on flat dark chrome (`#181C27`) the median spread
-   is 1.2.
+   7x7 detects nothing more and doubles the false alarms, so the knee is at
+   5x5. The threshold itself is untouched — the number stays the one the
+   measurements justify, and only the radius changes to match the decoder.
 
-1b. **What the app does about it: a range, or a refusal.** Above that threshold
-   the app stops reporting a single number, because a warning beside an
-   authoritative figure is still an authoritative figure. It reports either the
-   range the reading could really be, answering a criterion only when the whole
-   range falls on one side of it — or nothing at all, when the source cannot
-   support an answer.
+   The same radius now feeds the candidate chromas. Previously the witness scan
+   looked further than the chroma source, so a witness could certify that a
+   colour existed undamaged nearby while its chroma was never offered as a
+   candidate — existence without membership. One window removes that gap by
+   construction.
 
-   The range uses the asymmetry of the damage: luma is stored **per pixel**,
-   chroma **per 2x2 block**. So the sampled pixel's brightness is known to
-   within one level and its colour is not, and the colours it could have been
-   are its luma — with that error bar — combined with each chroma present
-   within one pixel of it.
-   - **The luma is a measurement, not a fact.** An earlier version treated the
-     decoded luma as exact, contradicting this file's own measurement that a
-     coloured pixel moves by one level. One level on each channel moves
-     `Y' = 0.299R + 0.587G + 0.114B` by at most 1, so that is the error bar.
-     Without it the band missed the true ratio on about half of all flat-block
-     readings: every candidate had the wrong brightness, so the true colour was
-     never among them. This was found by an independent audit, not by the
-     tests, which fed the band pristine neighbours and so tested their own
-     premise.
-   - **The gamut boundary breaks the luma argument**, and measuring rather than
-     reasoning is what found it. A decoder clamps to 0-255, so a *white* pixel
-     given a foreign chroma cannot decode back to white. A channel at exactly 0
-     or 255 is the signature; the candidate lumas then extend to the
-     neighbouring lumas on that side only. A pixel clamped at BOTH ends — every
-     saturated primary, `#FF0000` has 255 and 0 — says nothing about which way
-     the luma moved, so it gets no extension rather than both.
-   - **A reading with no undamaged witness is refused.** This is the serious
-     one. On a stroke one or two pixels wide every pixel is rim: they all carry
-     the same blended chroma, which looks exactly like a consensus, so the band
-     came out narrow, confident and WRONG — a true 3.99:1, which fails AA for
-     normal text, reported as 7.17-8.59:1 and therefore a pass at every level
-     including AAA. The candidates are built from the chroma values present,
-     and on a thin stroke the true one is not among them.
+   End to end, through the app's own code on real decoded pixels:
 
-     What distinguishes that case is not the chroma, which agrees, but that
-     nothing nearby is clean. Damage is confined to the one-pixel rim, so a
-     pixel whose own neighbourhood is chroma-flat is undamaged. If no such
-     pixel shares the sample's brightness — within 4 levels: 3 is the most a
-     pixel two or more from an edge was measured to move, plus the sample's own
-     1 — then the sample's region has no undamaged example in reach, and the
-     app says the reading cannot be made instead of answering it.
+   | | text-like strokes | the 1px-stroke fixture |
+   | --- | --- | --- |
+   | damaged pixels tested | 7998 | 1276 |
+   | slipped past the gate (silent) | **192** (was 1728) | **0** |
+   | worst silent error | **37 levels** (was 104) | — |
+   | silent errors of 40 levels or more | **0** (was 320) | 0 |
+   | refused outright | 3767 | 401 |
+   | banded | 4039 | 875 |
+   | **wrong verdicts from a band** | **0** | **0** |
+   | thresholds still answered | 99.3% | 89.3% |
+   | mean band width | 1.33 | 1.37 |
 
-     **Necessary, not sufficient.** A clean pixel at the same brightness might
-     belong to a different region that happens to be equally bright. This
-     removes the case that was measured to be catastrophic; it does not make
-     the band sound in general.
-   - Measured over 12 realistic UI colours, every ordered pair and three block
-     mixes. **Edge readings that do have an undamaged interior nearby:** 332
-     banded, the true ratio inside the band **332 of 332**, mean width 0.76,
-     and **90.5%** of threshold decisions still answered. In **105** of those
-     readings the single stored value would have given the wrong pass/fail;
-     after the band, **none** does.
-   - **KNOWN GAP, and it is in the model rather than the code.** The paragraph
-     above premises that "a pixel at a colour edge receives the block average".
-     That is BOX chroma upsampling. libjpeg defaults to *fancy* (triangle)
-     upsampling and Skia never turns it off, so a decoded pixel's chroma is a
-     weighted blend smeared over about three pixels, and near a colour edge
-     **no pixel carries its region's true chroma at all**.
-
-     Verified here rather than argued: `testdata/` re-encoded 4:2:0, a 1px red
-     stroke decoded two ways and compared with what the app itself reports for
-     that pixel.
-
-     | pixel | fancy | box | the app (Skia) |
-     | --- | --- | --- | --- |
-     | the stroke | `#8E3030` | `#A42725` | **`#8E3030`** |
-     | its left neighbour | `#FFF6F4` | `#FFFFFF` | |
-
-     The consequence is that a candidate set built from *observed* chromas
-     cannot be relied on to contain the truth on a thin stroke, whatever
-     witness test guards it — the witness certifies that the colour exists
-     undamaged somewhere, not that its chroma is among the candidates. The
-     stroke figures quoted in earlier commit messages were measured against the
-     box-like model in `__tests__/band.test.ts`, so they overstate how often a
-     stroke is refused on a real decode. The refusal is real and it removes
-     many of these readings; it does not remove all of them.
-
-     Closing this properly means not deriving candidates from observed chromas
-     at all — luma survives to within one level, edge chroma does not survive —
-     and bounding the ratio over every colour of matching luma. That is
-     decoder-independent, and it costs wider bands and fewer answered
-     thresholds. Not done yet.
-   - **Averaged patches get no band.** The argument above is a per-pixel claim.
-     Substituting one chroma across a whole patch would assume the patch is a
-     single colour — true exactly when the spread is low, i.e. when no band is
-     needed, and false exactly when it is. Rather than ship a derivation that
-     fails on the case it exists for, 3x3/5x5 keep the full warning and no
-     band. Single-pixel sampling is the default.
+   **What remains.** When the gate fires, the band now produces no wrong
+   verdict on this content. The residual risk is the 192 readings that still
+   slip past it silently, which carry 93 wrong verdicts between them; the worst
+   is `#166534` decoding as `#3B4F44`, 37 levels, shown as 7.99:1 against a
+   true 6.48:1 — enough to cross the AAA threshold. So: **a reading taken on or
+   near small coloured text can still be wrong, and this tool cannot yet tell
+   you when.** Use a PNG screenshot for anything you intend to cite.
 
 2. **Anti-aliasing and sub-pixel text.** The pixel you touch may be a blend of
    text and background. Zoom in and pick the solid core of a glyph stroke, or

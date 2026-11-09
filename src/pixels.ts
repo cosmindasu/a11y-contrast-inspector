@@ -94,7 +94,12 @@ export function samplePatch(img: LoadedImage, x: number, y: number, size: number
 }
 
 export interface Neighbourhood {
-  /** Every pixel within one pixel of the sample, including the sample itself. */
+  /**
+   * Every pixel within the decoder's smear radius of the sample, including the
+   * sample itself. This is BOTH the chroma source for the candidate colours
+   * and the window the gate measures, so the two cannot drift apart: a witness
+   * the scan finds is a pixel whose chroma is also offered as a candidate.
+   */
   colours: RGB[];
   /** Chroma variation across those pixels. */
   chromaSpread: number;
@@ -118,16 +123,30 @@ export interface Neighbourhood {
  * value returned for the point. Both outputs come from one `readPixels` call,
  * so the spread and the colours can never disagree about what was there.
  */
+/**
+ * How far the decoder smears chroma, in pixels either side.
+ *
+ * NOT the 2x2 chroma block. libjpeg upsamples chroma with a triangle filter by
+ * default and Skia never turns it off, so a decoded pixel's chroma is a
+ * weighted blend of its own block average and its neighbours', spread about
+ * two pixels. Every window in this file is sized from this, and a 3x3 — the
+ * box-upsampling assumption — was measured to miss 19% of damaged pixels on
+ * content with thin coloured strokes while a 5x5 misses 1.8%.
+ */
+const SMEAR_RADIUS = 2;
+
 export function sampleNeighbourhood(
   img: LoadedImage,
   x: number,
   y: number,
   size: number,
 ): Neighbourhood {
-  // Read wide enough that every pixel we want to judge has its OWN 3x3
-  // available: the sample's neighbourhood is size+2, the pixels we test for
-  // cleanliness reach one further, and each of those needs one more again.
-  const outer = patchBounds(x, y, size + 6, img.width, img.height);
+  // Read wide enough that every pixel we want to judge has its own full
+  // window available: the sample's neighbourhood reaches SMEAR_RADIUS, the
+  // pixels tested for cleanliness reach that far again, and each of those
+  // needs its own window on top.
+  const span = size + 2 * SMEAR_RADIUS;
+  const outer = patchBounds(x, y, size + 4 * SMEAR_RADIUS, img.width, img.height);
   const rgba = readRect(img.image, outer.x, outer.y, outer.width, outer.height);
   const at = (px: number, py: number): RGB => {
     const i = ((py - outer.y) * outer.width + (px - outer.x)) * 4;
@@ -136,22 +155,24 @@ export function sampleNeighbourhood(
   const inside = (px: number, py: number) =>
     px >= outer.x && py >= outer.y && px < outer.x + outer.width && py < outer.y + outer.height;
 
-  const inner = patchBounds(x, y, size + 2, img.width, img.height);
+  const inner = patchBounds(x, y, span, img.width, img.height);
   const colours: RGB[] = [];
   for (let py = inner.y; py < inner.y + inner.height; py++) {
     for (let px = inner.x; px < inner.x + inner.width; px++) colours.push(at(px, py));
   }
 
-  // A pixel is undamaged when its own surroundings carry no colour edge:
-  // `lossy.ts` measured the damage as confined to the one-pixel rim.
-  const scan = patchBounds(x, y, size + 4, img.width, img.height);
+  // A pixel is undamaged when nothing within the smear radius carries a
+  // colour edge — the same question the gate asks about the sample, so the
+  // same window.
+  const r = SMEAR_RADIUS;
+  const scan = patchBounds(x, y, span, img.width, img.height);
   const cleanLumas: number[] = [];
   for (let py = scan.y; py < scan.y + scan.height; py++) {
     for (let px = scan.x; px < scan.x + scan.width; px++) {
-      if (!inside(px - 1, py - 1) || !inside(px + 1, py + 1)) continue;
+      if (!inside(px - r, py - r) || !inside(px + r, py + r)) continue;
       const block: RGB[] = [];
-      for (let by = py - 1; by <= py + 1; by++) {
-        for (let bx = px - 1; bx <= px + 1; bx++) block.push(at(bx, by));
+      for (let by = py - r; by <= py + r; by++) {
+        for (let bx = px - r; bx <= px + r; bx++) block.push(at(bx, by));
       }
       if (chromaSpreadOfColours(block) < LOSSY_SPREAD_THRESHOLD) cleanLumas.push(luma(at(px, py)));
     }
