@@ -14,7 +14,9 @@
  *   - 98.42% of coloured pixels moved by exactly one level. The damage is
  *     confined to the one-pixel rim at a colour edge, where the 2x2 chroma
  *     block straddles two colours: there the deviation reached 93 levels. At
- *     two pixels or more from an edge it falls back to one level.
+ *     two pixels or more from an edge it falls to one level for all but 14
+ *     pixels and never exceeds 3 — which is the figure the threshold is
+ *     actually derived from, and which the rim-only picture oversimplifies.
  *   - Worst case: #FF0000 decoded as #A2243A. Against white that turns a real
  *     3.99:1 into a reported 7.36:1 — a 1.4.3 AA failure reported as a 1.4.6
  *     AAA pass. The error is not symmetric: it overstates contrast, the one
@@ -38,9 +40,20 @@
  *
  *   - On the reference image, every pixel whose real error reached 8 levels or
  *     more had a 3x3 chroma spread of at least 54.6. Pixels with a spread
- *     under 16 never exceeded 3 levels of error.
- *   - A threshold of 24 therefore sits in an empty gap, with margin on both
- *     sides, and catches 1118 of 1118 damaged pixels.
+ *     under 16 never exceeded 3 levels of error. A threshold of 24 sits in
+ *     that gap and catches 1118 of 1118 damaged pixels THERE.
+ *   - THAT GAP IS A PROPERTY OF THE REFERENCE IMAGE. It is flat blocks and one
+ *     neutral stripe band, with no thin coloured strokes — the content this
+ *     app exists to measure. On stroke-bearing content the relationship
+ *     inverts: the chroma field is smoothed across the whole stroke, so the
+ *     error is large while the local variation left to measure is small.
+ *   - The window was widened to match the decoder's smear radius (see
+ *     `pixels.ts`), which recovered most of it. THE NUMBER WAS NOT RE-DERIVED.
+ *     24 was fitted to a 3x3 and now gates a 5x5, which measures a different
+ *     quantity, so it has never been derived for the window it applies to.
+ *     The residual damage that still slips through sits just under it — an
+ *     84-level error at a spread of 23.4 was measured by an independent audit.
+ *     Re-deriving it is the next measurement, and a real trade: see the README.
  *   - On a real MIUI screenshot it fires on 1.97% of pixels. For pixels of
  *     #181C27 (a real dark UI background) the median spread is 1.2 and the
  *     90th percentile 2.2, so flat dark chrome stays silent.
@@ -113,7 +126,12 @@ export function chromaSpreadOfRgba(rgba: Uint8Array): number {
   return chromaSpreadOfColours(colours);
 }
 
-/** Derived above: no damaged pixel sat below 54.6, no safe pixel above 16. */
+/**
+ * Fitted to a 3x3 window on `testdata/reference.png`, where no damaged pixel
+ * sat below a spread of 54.6 and no safe pixel above 16. It now gates a 5x5
+ * window on all content, which is a different measurement — see the note
+ * above. Not yet re-derived.
+ */
 export const LOSSY_SPREAD_THRESHOLD = 24;
 
 /**

@@ -85,9 +85,22 @@ hex and RGB, and the WCAG verdicts.
    | **5x5 (now)** | **98.2%** | **2.2%** |
    | 7x7 | 98.2% | 4.4% |
 
-   7x7 detects nothing more and doubles the false alarms, so the knee is at
-   5x5. The threshold itself is untouched — the number stays the one the
-   measurements justify, and only the radius changes to match the decoder.
+   An independent audit re-ran this on its own corpus and got 85.0 / 97.6 /
+   **99.3%** for detection: 7x7 does detect a little more, not nothing, and my
+   own figures show it too — 6 pixels out of 10,392, which I rounded away. The
+   false-alarm column is the one to be careful with: the same audit measured
+   1.92 / 9.15 / 14.95% on a corpus that packs colour edges far more densely
+   than real UI. **Both corpora agree on the ratio — about 5x going from 3x3 to
+   5x5 — and disagree on the baseline, because the baseline is a property of
+   the content.** On a realistic 320x480 dark-UI mock the gated share of all
+   pixels goes 0.87% -> 1.73%, which is the figure worth quoting and is in line
+   with the 1.97% measured on a real MIUI screenshot.
+
+   5x5 is chosen on cost rather than on detection: 7x7 buys about 1.7 points
+   and roughly doubles the false alarms again.
+
+   The threshold itself is untouched, and that is now the open question rather
+   than a settled choice — see "what remains" below.
 
    The same radius now feeds the candidate chromas. Previously the witness scan
    looked further than the chroma source, so a witness could certify that a
@@ -102,20 +115,39 @@ hex and RGB, and the WCAG verdicts.
    | damaged pixels tested | 7998 | 1276 |
    | slipped past the gate (silent) | **192** (was 1728) | **0** |
    | worst silent error | **37 levels** (was 104) | — |
-   | silent errors of 40 levels or more | **0** (was 320) | 0 |
+   | silent errors of 40 levels or more | 0 *on this content* (was 320) | 0 |
    | refused outright | 3767 | 401 |
    | banded | 4039 | 875 |
-   | **wrong verdicts from a band** | **0** | **0** |
+   | **wrong verdicts from a band** | 0 *on this content* | 0 |
    | thresholds still answered | 99.3% | 89.3% |
    | mean band width | 1.33 | 1.37 |
 
-   **What remains.** When the gate fires, the band now produces no wrong
-   verdict on this content. The residual risk is the 192 readings that still
-   slip past it silently, which carry 93 wrong verdicts between them; the worst
-   is `#166534` decoding as `#3B4F44`, 37 levels, shown as 7.99:1 against a
-   true 6.48:1 — enough to cross the AAA threshold. So: **a reading taken on or
-   near small coloured text can still be wrong, and this tool cannot yet tell
-   you when.** Use a PNG screenshot for anything you intend to cite.
+   **What remains, and it is more than the table above suggests.** The two
+   zeroes in that table are properties of my test content, not of the app. An
+   independent audit re-ran the same code over a larger, edge-denser corpus
+   and found:
+
+   - **248 silent errors of 40 levels or more**, worst 84, of which 48 carry a
+     wrong verdict. The concrete one: a `#1D4ED8` stroke decoding as `#3B4F84`,
+     an 84-level error, shown as a single 7.23:1 with no warning at all against
+     a true 6.08:1 — a pass at AAA on text that fails.
+   - **20 wrong verdicts from bands**, where I measured none. Every one of them
+     is a wrong *Fail*: the band understates contrast. So the claim that holds
+     across both corpora is the narrower and more useful one — **no band has
+     been observed to produce a wrong Pass.** For an auditor that is the
+     direction that matters.
+
+   **The binding constraint has moved from the window to the number.** The
+   surviving silent errors sit just under the gate — that 84-level one is at a
+   spread of 23.4 against a threshold of 24. `LOSSY_SPREAD_THRESHOLD` was
+   fitted to a 3x3 window on `reference.png` and now gates a 5x5, which
+   measures a different quantity; it has never been derived for the window it
+   applies to. Re-deriving it is the next measurement and a genuine trade:
+   lower it and ordinary readings start being refused.
+
+   Until then: **a reading taken on or near small coloured text can still be
+   silently wrong, in the direction of passing.** Use a PNG screenshot for
+   anything you intend to cite.
 
 2. **Anti-aliasing and sub-pixel text.** The pixel you touch may be a blend of
    text and background. Zoom in and pick the solid core of a glyph stroke, or
