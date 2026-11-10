@@ -410,6 +410,49 @@ read**, because a one-or-two-pixel stroke has no undamaged inside left after
 4:2:0 subsampling. The chroma smear is visible around the glyphs at that zoom.
 The premise of this project, measured on the device that motivated it.
 
+## Heard with TalkBack, not just reasoned about
+
+Measured on an Android 16 emulator with TalkBack running, 2026-11-10. Until
+then the app's own accessibility had only been argued from its source.
+
+**The result reads correctly, and that part is better than expected.** Each
+criterion is ONE focus stop carrying a whole sentence — "SC 1.4.3 AA, Normal
+text, needs 4.5 to 1: pass" — because the row is `accessible` with its own
+label. Verified in the node tree rather than assumed: the group is
+`focusable="true"` and its two child TextViews are `focusable="false"`, so a
+screen reader stops once per criterion and never reads the visual fragments
+("✔ Pass", "SC 1.4.3 AA · Normal text · 4.5:1") on top of it. I expected a
+double announcement here and was wrong.
+
+**A point cannot be placed at all with TalkBack on.** Not "it lands in the
+wrong place" — it does not land. A single tap on the image moves accessibility
+focus, and a double tap, which is how a TalkBack user activates things, moves
+nothing: both markers stayed exactly where they were. The image is an
+`accessibilityRole="image"` over a Skia canvas whose touches are caught by a
+touch responder, and TalkBack's double tap dispatches `ACTION_CLICK`, which a
+touch responder never sees.
+
+**The nudge buttons do work** — they are real Pressables, so a point that
+already exists can be moved one image pixel at a time.
+
+**But nothing announces the new reading.** The only live region in the app is
+the zoom level (`Viewer.tsx`). The contrast ratio is not one, so a user who
+nudges hears silence and has to navigate back to the result after every press.
+
+Put together: with TalkBack on, this app can be READ but not STARTED. Someone
+can hear a measurement another person set up, and refine it a pixel at a time
+without hearing what changed. That is a real limitation of an accessibility
+tool, stated here rather than left to be discovered.
+
+The three fixes, in order of effort against effect:
+
+1. **Make the ratio a polite live region.** Nearly free, and it turns nudging
+   from blind into usable.
+2. **Coarse nudges (10 and 100 pixels) beside the single-pixel one.** Walking a
+   point across a 1080×2400 screenshot one pixel at a time is not a route.
+3. **Numeric coordinate entry** — two fields per point. The only thing that
+   makes the tool startable without sight, and small.
+
 ## Not included
 
 - **STRETCH, left out: 44x44 dp target-size overlay (SC 2.5.5).** Omitted to
