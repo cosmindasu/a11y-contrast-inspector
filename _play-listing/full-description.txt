@@ -1,0 +1,42 @@
+Tap two points on a screenshot. Get the contrast ratio between them, and a verdict against every WCAG colour-contrast criterion at once.
+
+WHAT IT ANSWERS
+
+• SC 1.4.3 AA — normal text (4.5:1) and large text (3:1)
+• SC 1.4.6 AAA — normal text (7:1) and large text (4.5:1)
+• SC 1.4.11 AA — user interface components and graphics (3:1)
+
+Ratios are truncated, never rounded up, because WCAG does not round: 4.499 fails 4.5.
+
+IT TELLS YOU WHEN IT CANNOT ANSWER
+
+This is the part most contrast checkers skip. Many phones do not save a screenshot as the PNG the system captured — they re-encode it as JPEG, which stores colour at half resolution. Sample a thin coloured label on one of those and the value you read is not the value that was on screen. Measured worst case on a real device: a true 3.99:1 reads as 7.36:1 — an AA failure reported as an AAA pass.
+
+So this app checks the file it was given. When a sampled point sits where that damage lands, it does not quietly return a number. It gives a range if the file still narrows one down, and refuses outright when nothing of the original colour survives nearby — telling you what a tool that did not check would have answered, so you can see the size of the mistake you avoided.
+
+PRECISION
+
+• Single pixel, or an average over 3x3 or 5x5
+• Move a point one, ten or a hundred pixels at a time, or type its coordinates
+• Zoom to the pixel
+• Reads the colour space recorded in the file, and says when there is none
+
+EVIDENCE YOU CAN SEND
+
+Export any finding as one image: both colours with their hex and RGB values and their exact pixel coordinates, the ratio, every criterion with its verdict, the source file's name and size, and every warning that applied. A result the app refused to read exports as a refusal, with its reason and no verdicts to be quoted out of context. The screen and the exported card come from the same code, so they cannot disagree.
+
+Send a screenshot straight to the app from the share sheet and the export carries the real file name. Open it through the gallery picker instead and the name is the gallery's own id, so the card says so rather than printing something that looks traceable and is not.
+
+PRIVACY
+
+• No permissions. The one entry in the manifest is the internal receiver
+  permission Android generates for every app; there is nothing to grant.
+• No INTERNET permission, so the app cannot reach the network even if it tried
+• No analytics, no accounts, no ads
+• Images are read where you chose them; nothing is uploaded, and nothing is kept
+
+ABOUT THE APP ITSELF
+
+With a screen reader running, every control, result and warning is labelled, the nudge steps are spoken, and the ratio announces itself when it changes. Placing a point by touching the image is the one thing a screen reader cannot do — type the coordinates instead. The app says this plainly rather than claiming more than it delivers.
+
+Android only. Screenshots only: photographing a screen gives wrong colours, so the app does not pretend otherwise.
