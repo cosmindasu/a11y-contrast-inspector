@@ -43,3 +43,7 @@ yarn-error.*
 # Generated native projects (Continuous Native Generation) - never edit by hand
 /android
 /ios
+
+# Demo recording: the harness and its deliverables stay out of git by decision.
+/e2e/recording/
+/_demo-video/
