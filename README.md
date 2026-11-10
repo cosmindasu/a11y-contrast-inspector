@@ -489,9 +489,10 @@ a fix for it.
 - iOS (not configured, not tested).
 - Multi-image share (`SEND_MULTIPLE`), WebP/HEIC colour-space inspection
   (decoding works if the OS decodes them; the warning says "not inspected").
-- TalkBack: buttons, results and warnings are labelled, and the nudge arrows
-  allow non-touch point adjustment, but placing the first point requires
-  touching the image.
+- TalkBack: the image itself still cannot be touched while a screen reader is
+  running. Everything else now has a route around it — typed coordinates place
+  a point, nudges take 1, 10 or 100 pixel steps, and the ratio announces
+  itself. See "Heard with TalkBack" above for what was measured.
 
 ## Layout
 
