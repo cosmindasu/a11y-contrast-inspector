@@ -124,6 +124,12 @@ export function Results({
 
   return (
     <View style={{ gap: 10 }}>
+      {/* NO live region on this one, on purpose. A live region re-announces its
+          whole label every time it changes, and this label is a paragraph.
+          Hearing it again after every single-pixel nudge would be worse than
+          silence — and the moment a nudge reaches readable pixels, the card
+          below appears and ITS live region says the ratio, which is the thing
+          worth hearing. */}
       {result?.kind === 'result' && unrecoverable && (
         <View
           style={[styles.card, { borderColor: theme.fail }]}
@@ -143,6 +149,7 @@ export function Results({
         <View
           style={[styles.card, { borderColor: theme.warn }]}
           accessible
+          accessibilityLiveRegion="polite"
           accessibilityLabel={`Contrast ratio is between ${formatBand(band)}. The source does not pin it down further.`}
         >
           <Text style={{ color: theme.muted, fontSize: 14 }}>Contrast ratio — range</Text>
@@ -162,6 +169,7 @@ export function Results({
         <View
           style={[styles.card, { borderColor: theme.border }]}
           accessible
+          accessibilityLiveRegion="polite"
           accessibilityLabel={`Contrast ratio ${formatRatio(ratio)}`}
         >
           <Text style={{ color: theme.muted, fontSize: 14 }}>Contrast ratio</Text>

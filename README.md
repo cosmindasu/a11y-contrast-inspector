@@ -424,13 +424,21 @@ screen reader stops once per criterion and never reads the visual fragments
 ("✔ Pass", "SC 1.4.3 AA · Normal text · 4.5:1") on top of it. I expected a
 double announcement here and was wrong.
 
-**A point cannot be placed at all with TalkBack on.** Not "it lands in the
-wrong place" — it does not land. A single tap on the image moves accessibility
-focus, and a double tap, which is how a TalkBack user activates things, moves
-nothing: both markers stayed exactly where they were. The image is an
-`accessibilityRole="image"` over a Skia canvas whose touches are caught by a
-touch responder, and TalkBack's double tap dispatches `ACTION_CLICK`, which a
-touch responder never sees.
+**A point cannot be placed with TalkBack on.** Not "it lands in the wrong
+place" — it does not land. With TalkBack running, injected taps on the image
+placed nothing, while the very same injected taps on the nudge buttons fired
+normally; with TalkBack off, those same taps on the image place a point. So the
+difference is real and it is TalkBack's presence that causes it.
+
+WHY is not established, and the first version of this section claimed it was.
+It said TalkBack's double tap dispatches `ACTION_CLICK`, which the image's
+touch responder never receives. That is a plausible mechanism and it may well
+be the one — a Skia canvas behind a touch responder registers no click action —
+but it is not what was measured. A later check showed that `adb shell input
+tap` is not routed through TalkBack's touch exploration at all: one tap on a
+button is one `onPress`, not a focus move. So the taps in the experiment never
+travelled the path the explanation blamed. The observation stands; the reason
+is a hypothesis.
 
 **The nudge buttons do work** — they are real Pressables, so a point that
 already exists can be moved one image pixel at a time.
@@ -444,14 +452,33 @@ can hear a measurement another person set up, and refine it a pixel at a time
 without hearing what changed. That is a real limitation of an accessibility
 tool, stated here rather than left to be discovered.
 
-The three fixes, in order of effort against effect:
+### All three fixed, and checked with TalkBack running
 
-1. **Make the ratio a polite live region.** Nearly free, and it turns nudging
-   from blind into usable.
-2. **Coarse nudges (10 and 100 pixels) beside the single-pixel one.** Walking a
-   point across a 1080×2400 screenshot one pixel at a time is not a route.
-3. **Numeric coordinate entry** — two fields per point. The only thing that
-   makes the tool startable without sight, and small.
+1. **The ratio is a polite live region.** On the two cards that carry a reading,
+   so a nudge announces the new number. NOT on the "cannot be read" card: that
+   label is a paragraph, and hearing it again after every single-pixel nudge
+   would be worse than silence — when a nudge reaches readable pixels the
+   numeric card appears and says the ratio, which is the moment worth hearing.
+   This is the one fix not verified by ear: the emulator's TalkBack logs no
+   utterances, so the attribute is asserted from source rather than heard.
+
+2. **Coarse nudges.** A step of 1, 10 or 100 image pixels, and the step is in
+   the arrows' own labels — a screen reader says "Nudge left by 100 pixels",
+   not "Nudge left". Measured with TalkBack on: one press at step 100 moved the
+   point from x=194 to x=94.
+
+3. **Typed coordinates.** Two fields for the active point, clamped to the
+   image. The keyboard alone finishes the job — x, Next, y, Done — because the
+   soft keyboard covers the Set button once it opens, which the first version
+   of this feature did not account for and which the test found immediately.
+   Measured with TalkBack on: typing 180 put both points on the same colour and
+   the reading went to 1.00:1; typing 394 put it back and the reading returned
+   to 5.41:1.
+
+With these, a screen-reader user can start a measurement, move it in useful
+increments, and hear the result change. The image itself is still unreachable
+by touch under TalkBack, and that is now a route around the problem rather than
+a fix for it.
 
 ## Not included
 

@@ -5,7 +5,7 @@ import * as Sharing from 'expo-sharing';
 import { useShareIntent } from 'expo-share-intent';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { relativeLuminance } from './src/contrast';
 import type { PixelPoint } from './src/coords';
@@ -29,6 +29,18 @@ import { Viewer } from './src/Viewer';
 
 // 1 = exact single pixel; 3/5 = explicit averaged patch.
 type Mode = SamplingMode;
+
+/** How far one press of an arrow moves the active point, in image pixels. */
+type Step = (typeof STEPS)[number];
+const STEPS = [1, 10, 100] as const;
+
+/** Arrow glyph, the word a screen reader hears, and the direction. */
+const NUDGES = [
+  ['◀', 'left', -1, 0],
+  ['▲', 'up', 0, -1],
+  ['▼', 'down', 0, 1],
+  ['▶', 'right', 1, 0],
+] as const satisfies readonly (readonly [string, string, number, number])[];
 
 function measure(img: LoadedImage, at: PixelPoint | null, mode: Mode): Measured | null {
   if (!at) return null;
@@ -75,6 +87,24 @@ function Main() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [sharing, setSharing] = useState(false);
+  /**
+   * How far one nudge moves, in image pixels. A screen reader cannot place a
+   * point by touch at all (TalkBack's double tap sends ACTION_CLICK, which the
+   * image's touch responder never receives — measured, see the README), so the
+   * nudge buttons are the only way to move one. At one pixel a time, crossing a
+   * 1080x2400 screenshot is not a route.
+   */
+  const [step, setStep] = useState<Step>(1);
+  /** Text being typed into the coordinate fields for the ACTIVE point. */
+  const [draft, setDraft] = useState<{ x: string; y: string }>({ x: '', y: '' });
+  /**
+   * The y field, so the x field's "Next" key can reach it. Measured on an
+   * emulator with TalkBack running: once the keyboard is open it covers the
+   * Set button and shifts the row, so reaching either by touch is a fight.
+   * Next-then-Done finishes the job from the keyboard alone, which is also the
+   * only comfortable route with a screen reader.
+   */
+  const yField = useRef<React.ComponentRef<typeof TextInput> | null>(null);
   // The last file we wrote into the cache, so a session does not leave a pile.
   const lastExport = useRef<File | null>(null);
 
@@ -132,6 +162,37 @@ function Main() {
     },
     [active, points],
   );
+
+  // Keep the coordinate fields showing wherever the active point actually is,
+  // including after a nudge or a touch. Typing does not change `points`, so
+  // this never fights the user mid-edit.
+  useEffect(() => {
+    const p = points[active];
+    setDraft({ x: p ? String(p.x) : '', y: p ? String(p.y) : '' });
+  }, [active, points]);
+
+  /**
+   * Put the active point at typed coordinates. The only way to START a
+   * measurement without sight: touch cannot do it under a screen reader, and
+   * nudging only moves a point that already exists.
+   */
+  const applyCoords = () => {
+    if (!img) return;
+    const x = Number.parseInt(draft.x, 10);
+    const y = Number.parseInt(draft.y, 10);
+    if (!Number.isInteger(x) || !Number.isInteger(y)) {
+      setError(`Type whole numbers for x and y. This image is ${img.width} by ${img.height} pixels.`);
+      return;
+    }
+    setError(null);
+    const n = {
+      x: Math.min(img.width - 1, Math.max(0, x)),
+      y: Math.min(img.height - 1, Math.max(0, y)),
+    };
+    setPoints((cur) => (active === 0 ? [n, cur[1]] : [cur[0], n]));
+  };
+
+  const activeName = active === 0 ? 'A' : 'B';
 
   const nudge = (dx: number, dy: number) => {
     if (!img) return;
@@ -266,12 +327,72 @@ function Main() {
               <Button label="Point A" theme={theme} selected={active === 0} onPress={() => setActive(0)} />
               <Button label="Point B" theme={theme} selected={active === 1} onPress={() => setActive(1)} />
               <Text style={{ color: theme.muted, fontSize: 13, flexShrink: 1 }}>
-                {`Nudge point ${active === 0 ? 'A' : 'B'} by 1 image pixel:`}
+                {`Nudge point ${activeName} by ${step} image pixel${step === 1 ? '' : 's'}:`}
               </Text>
-              <Button label="◀" a11yLabel="Nudge left" theme={theme} onPress={() => nudge(-1, 0)} />
-              <Button label="▲" a11yLabel="Nudge up" theme={theme} onPress={() => nudge(0, -1)} />
-              <Button label="▼" a11yLabel="Nudge down" theme={theme} onPress={() => nudge(0, 1)} />
-              <Button label="▶" a11yLabel="Nudge right" theme={theme} onPress={() => nudge(1, 0)} />
+              {NUDGES.map(([label, dir, dx, dy]) => (
+                <Button
+                  key={label}
+                  label={label}
+                  a11yLabel={`Nudge ${dir} by ${step} pixel${step === 1 ? '' : 's'}`}
+                  theme={theme}
+                  onPress={() => nudge(dx * step, dy * step)}
+                />
+              ))}
+            </View>
+
+            <View style={styles.row}>
+              <Text style={{ color: theme.text, fontSize: 14, fontWeight: '600' }}>Step:</Text>
+              {STEPS.map((n) => (
+                <Button
+                  key={n}
+                  label={String(n)}
+                  a11yLabel={`Nudge step ${n} pixel${n === 1 ? '' : 's'}`}
+                  theme={theme}
+                  selected={step === n}
+                  onPress={() => setStep(n)}
+                />
+              ))}
+            </View>
+
+            {/* Typed coordinates. Touch cannot place a point under a screen
+                reader, so without this the tool can be read but not started. */}
+            <View style={styles.row}>
+              <Text style={{ color: theme.text, fontSize: 14, fontWeight: '600' }}>
+                {`Point ${activeName} at`}
+              </Text>
+              <TextInput
+                value={draft.x}
+                onChangeText={(t) => setDraft((d) => ({ ...d, x: t }))}
+                onSubmitEditing={() => yField.current?.focus()}
+                submitBehavior="submit"
+                keyboardType="number-pad"
+                returnKeyType="next"
+                accessibilityLabel={`X for point ${activeName}, in image pixels, 0 to ${img.width - 1}`}
+                placeholder="x"
+                placeholderTextColor={theme.muted}
+                style={[styles.coord, { color: theme.text, borderColor: theme.border, backgroundColor: theme.surface }]}
+              />
+              <TextInput
+                ref={yField}
+                value={draft.y}
+                onChangeText={(t) => setDraft((d) => ({ ...d, y: t }))}
+                onSubmitEditing={applyCoords}
+                keyboardType="number-pad"
+                returnKeyType="done"
+                accessibilityLabel={`Y for point ${activeName}, in image pixels, 0 to ${img.height - 1}`}
+                placeholder="y"
+                placeholderTextColor={theme.muted}
+                style={[styles.coord, { color: theme.text, borderColor: theme.border, backgroundColor: theme.surface }]}
+              />
+              <Button
+                label="Set"
+                a11yLabel={`Put point ${activeName} at the typed coordinates`}
+                theme={theme}
+                onPress={applyCoords}
+              />
+              <Text style={{ color: theme.muted, fontSize: 12, flexShrink: 1 }}>
+                {`0 to ${img.width - 1} across, 0 to ${img.height - 1} down.`}
+              </Text>
             </View>
 
             {/* The reading comes before the controls that produced it: the panel
@@ -330,4 +451,5 @@ const styles = StyleSheet.create({
   // 5:4 split is exact.
   panel: { flexGrow: 4, flexShrink: 1, flexBasis: 0 },
   row: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
+  coord: { minHeight: 48, minWidth: 84, borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, fontSize: 16 },
 });
