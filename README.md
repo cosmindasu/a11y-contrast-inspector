@@ -390,6 +390,26 @@ the finding has to be cited.
 The file is written to the app's cache and shared from there, which needs no
 storage permission — `READ/WRITE_EXTERNAL_STORAGE` stay blocked.
 
+**Verified on the phone, through the share sheet, 2026-11-10.** Until then the
+claim above had only been reasoned about: every run of this app had gone through
+the picker, on an emulator. A screenshot taken on a Redmi (MIUI 11, Android 10)
+and sent with Share → Contrast Inspector arrives as
+
+    Screenshot_2026-11-10-19-52-41-724_ro.dbg.learningtodo.jpg · 1080×2340 px
+    File: JPEG (lossy). Colour space in file: srgb (ICC profile "sRGB", sRGB primaries).
+
+— the real name, carrying the date, the time and **the package of the app that
+was captured**, which is better provenance than this file claimed for it. The
+URI grant works, the format is read correctly, and MIUI tags its screenshots
+with an sRGB ICC profile (the synthetic 4:2:0 JPEGs used in testing are
+untagged, so that path had never been exercised either).
+
+And the app did on a real MIUI screenshot exactly what it exists to do: two
+points on the red `Delete` label and the white behind it returned **Cannot be
+read**, because a one-or-two-pixel stroke has no undamaged inside left after
+4:2:0 subsampling. The chroma smear is visible around the glyphs at that zoom.
+The premise of this project, measured on the device that motivated it.
+
 ## Not included
 
 - **STRETCH, left out: 44x44 dp target-size overlay (SC 2.5.5).** Omitted to
